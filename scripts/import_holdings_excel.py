@@ -214,7 +214,10 @@ def load_mf_sheet(ws):
     cost, value = find_summary_values(ws)
     if value is None:
         value = parse_float(ws.cell(ROW_PRESENT_VALUE, COL_SUMMARY_VALUE + 1).value)
+    if cost is None:
+        cost = parse_float(ws.cell(ROW_INVESTED_VALUE, COL_SUMMARY_VALUE + 1).value)
     mf_portfolio_value = round(value, 2) if value is not None else 0
+    mf_portfolio_cost = round(cost, 2) if cost is not None else 0
 
     holdings = []
     for row in ws.iter_rows(min_row=data_start, max_row=ws.max_row or 0, values_only=True):
@@ -244,7 +247,7 @@ def load_mf_sheet(ws):
         })
 
     holdings = _merge_duplicate_holdings(holdings, key_fields=("tradingsymbol", "folio"))
-    return holdings, mf_portfolio_value
+    return holdings, mf_portfolio_value, mf_portfolio_cost
 
 
 def load_holdings_from_excel(path: str):
@@ -266,12 +269,13 @@ def load_holdings_from_excel(path: str):
 
     mf_holdings = []
     mf_portfolio_value = 0.0
+    mf_portfolio_cost = 0.0
     ws_mf = get_sheet_by_name(wb, "Mutual Funds", "Mutual Fund")
     if ws_mf is not None:
-        mf_holdings, mf_portfolio_value = load_mf_sheet(ws_mf)
+        mf_holdings, mf_portfolio_value, mf_portfolio_cost = load_mf_sheet(ws_mf)
 
     wb.close()
-    return equity_holdings, mf_holdings, portfolio_value, portfolio_cost, mf_portfolio_value
+    return equity_holdings, mf_holdings, portfolio_value, portfolio_cost, mf_portfolio_value, mf_portfolio_cost
 
 
 def main():
@@ -286,7 +290,7 @@ def main():
     except ValueError:
         print(f"Invalid date: {date_str}. Use YYYY-MM-DD.")
         sys.exit(1)
-    equity, mf, portfolio_value, portfolio_cost, mf_portfolio_value = load_holdings_from_excel(xlsx_path)
+    equity, mf, portfolio_value, portfolio_cost, mf_portfolio_value, mf_portfolio_cost = load_holdings_from_excel(xlsx_path)
     if not equity and not mf:
         print("No holdings found. Ensure the Excel has 'Equity' and/or 'Mutual Funds' sheets with Summary (Invested Value, Present Value) and data rows.")
         sys.exit(1)
@@ -303,12 +307,13 @@ def main():
         month_per_stock={},
         mf_holdings=mf,
         mf_portfolio_value=mf_portfolio_value,
+        mf_portfolio_cost=mf_portfolio_cost,
         price_changes=None,
     )
     print(f"Imported for {date_str}: {len(equity)} equity, {len(mf)} mutual fund holdings.")
     print(f"  Equity: Present Value {portfolio_value:.2f}, Invested Value {portfolio_cost:.2f}")
     if mf:
-        print(f"  Mutual Funds: Present Value {mf_portfolio_value:.2f}")
+        print(f"  Mutual Funds: Present Value {mf_portfolio_value:.2f}, Invested Value {mf_portfolio_cost:.2f}")
 
 
 if __name__ == "__main__":

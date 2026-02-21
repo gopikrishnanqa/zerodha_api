@@ -125,7 +125,47 @@
     }
     .table-wrap {
       overflow-x: auto;
+      overflow-y: visible;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      max-width: 100%;
     }
+    .table-wrap.sticky-first {
+      overflow-x: auto;
+    }
+    .table-wrap.sticky-first table th:first-child,
+    .table-wrap.sticky-first table td:first-child {
+      position: sticky;
+      left: 0;
+      background: var(--card);
+      z-index: 1;
+      box-shadow: 4px 0 8px rgba(0,0,0,0.25);
+      white-space: nowrap;
+    }
+    .table-wrap.sticky-first table th:first-child { z-index: 2; }
+    .table-scroll-area { position: relative; }
+    .table-scroll-buttons {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+      align-items: center;
+    }
+    .table-scroll-buttons .btn-scroll {
+      padding: 8px 14px;
+      min-width: 44px;
+      border-radius: var(--radius);
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 1.1rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .table-scroll-buttons .btn-scroll:hover {
+      background: #21262d;
+      border-color: var(--text-muted);
+    }
+    .table-scroll-buttons .btn-scroll:disabled { opacity: 0.4; cursor: not-allowed; }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -290,11 +330,11 @@
 
     <div id="alerts"></div>
     <nav class="nav" id="main-nav" style="display:none;">
-      <a href="#dashboard" data-page="dashboard">Dashboard</a>
-      <a href="#holdings" data-page="holdings">Stocks &amp; MF</a>
-      <a href="#monthly" data-page="monthly">Monthly Summary</a>
-      <a href="#db" data-page="db">DB View</a>
-      <a href="#by-date" data-page="by-date">By Date</a>
+      <a href="/" data-page="dashboard">Dashboard</a>
+      <a href="/holdings" data-page="holdings">Stocks &amp; MF</a>
+      <a href="/monthly" data-page="monthly">Monthly Summary</a>
+      <a href="/db" data-page="db">DB View</a>
+      <a href="/by-date" data-page="by-date">By Date</a>
     </nav>
 
     <div id="page-dashboard" class="page">
@@ -306,7 +346,7 @@
       </div>
       <div id="summary-cards" class="summary-cards" style="display:none;"></div>
       <div id="comparison-cards" class="comparison-cards" style="display:none;"></div>
-      <p class="text-muted" style="margin-top: 16px;"><a href="#holdings" class="nav-link">View Stocks &amp; Mutual Funds →</a></p>
+      <p class="text-muted" style="margin-top: 16px;"><a href="/holdings" class="nav-link">View Stocks &amp; Mutual Funds →</a></p>
     </div>
 
     <div id="page-holdings" class="page">
@@ -616,7 +656,9 @@
         let mainHtml = '';
         if (holdings.length > 0) {
           mainHtml = `
-            <div class="card"><h3 class="section-title">Stocks</h3><div class="table-wrap"><table id="holdings-table">
+            <div class="card"><h3 class="section-title">Stocks</h3>
+            <div class="table-scroll-area"><div class="table-scroll-buttons"><button type="button" class="btn-scroll btn-scroll-left" aria-label="Scroll left">←</button><button type="button" class="btn-scroll btn-scroll-right" aria-label="Scroll right">→</button></div>
+            <div class="table-wrap sticky-first" id="holdings-table-wrap"><table id="holdings-table">
               <thead><tr>
                 <th data-sort="symbol">Symbol</th>
                 <th data-sort="exchange">Exchange</th>
@@ -632,7 +674,7 @@
                 <th>7d</th><th>30d</th><th>6m</th><th>1y</th>
               </tr></thead>
               <tbody id="holdings-body"></tbody>
-            </table></div></div>
+            </table></div></div></div>
           `;
         }
         if (mfHoldings.length > 0) {
@@ -657,16 +699,35 @@
           }).join('');
           const mfTotal = mfHoldings.reduce((s, h) => s + (parseFloat(h.quantity) || 0) * (parseFloat(h.last_price) || 0), 0);
           mainHtml += `
-            <div class="card" style="margin-top: 24px;"><h3 class="section-title">Mutual Funds</h3><div class="table-wrap"><table id="mf-holdings-table" class="holdings-table">
+            <div class="card" style="margin-top: 24px;"><h3 class="section-title">Mutual Funds</h3>
+            <div class="table-scroll-area"><div class="table-scroll-buttons"><button type="button" class="btn-scroll btn-scroll-left" aria-label="Scroll left">←</button><button type="button" class="btn-scroll btn-scroll-right" aria-label="Scroll right">→</button></div>
+            <div class="table-wrap sticky-first" id="mf-holdings-table-wrap"><table id="mf-holdings-table" class="holdings-table">
               <thead><tr>
                 <th>Fund</th><th>Folio</th><th>Units</th><th>Avg NAV</th><th>LTP (NAV)</th><th>Value</th><th>P&L</th><th>P&L %</th>
               </tr></thead>
               <tbody>${mfRows}</tbody>
               <tr class="total-row"><td colspan="5"><strong>Total (MF)</strong></td><td><strong>${fmt(mfTotal)}</strong></td><td colspan="2"></td></tr>
-            </table></div></div>
+            </table></div></div></div>
           `;
         }
         main.innerHTML = mainHtml || '<div class="card"><div class="empty-state"><p>No holdings</p></div></div>';
+        document.querySelectorAll('.table-scroll-area').forEach(area => {
+          const wrap = area.querySelector('.table-wrap');
+          const btnLeft = area.querySelector('.btn-scroll-left');
+          const btnRight = area.querySelector('.btn-scroll-right');
+          const step = 280;
+          function updateButtons() {
+            if (!wrap || !btnLeft || !btnRight) return;
+            const canLeft = wrap.scrollLeft > 0;
+            const canRight = wrap.scrollLeft < wrap.scrollWidth - wrap.clientWidth - 2;
+            btnLeft.disabled = !canLeft;
+            btnRight.disabled = !canRight;
+          }
+          if (btnLeft && wrap) btnLeft.addEventListener('click', () => { wrap.scrollBy({ left: -step, behavior: 'smooth' }); updateButtons(); });
+          if (btnRight && wrap) btnRight.addEventListener('click', () => { wrap.scrollBy({ left: step, behavior: 'smooth' }); updateButtons(); });
+          if (wrap) wrap.addEventListener('scroll', updateButtons);
+          updateButtons();
+        });
 
         if (holdings.length > 0) {
           renderHoldingsTable(holdingsData);
@@ -763,11 +824,15 @@
           fetch('/api/summary-by-date', { credentials: 'same-origin', cache: 'no-store' }),
           fetch('/api/cache-status', { credentials: 'same-origin', cache: 'no-store' })
         ]);
+        if (r1.status === 401 || r2.status === 401) {
+          el.innerHTML = '<p class="text-muted">Please <strong>connect with Zerodha</strong> on the Dashboard first to view the summary. This page uses your saved portfolio data.</p>';
+          return;
+        }
         const d1 = await r1.json().catch(() => ({}));
         const d2 = await r2.json().catch(() => ({}));
         const rows = d1.rows || d2.rows || [];
         if (rows.length === 0) {
-          el.innerHTML = '<p class="text-muted">No stored dates. Refresh portfolio on Dashboard to save data.</p>';
+          el.innerHTML = '<p class="text-muted">No stored dates. Connect with Zerodha and refresh portfolio on the Dashboard to save data, or import an Excel holdings file.</p>';
           return;
         }
         const dates = rows.map(r => r.date);
@@ -778,15 +843,26 @@
           niftyCloses = dN.closes || {};
         } catch (e) { /* ignore */ }
         const firstNifty = niftyCloses[dates[0]];
-        el.innerHTML = '<h3 style="margin:0 0 12px;">Summary by stored date (Stocks vs MF vs Nifty 50)</h3>' +
-          '<p class="text-muted" style="font-size:0.85rem; margin-bottom: 16px;">Values as of each fetch date. Month buy/sell are cumulative for that month. <strong>Change vs prev</strong> = change in Total from the previous stored date (market move + net investment/withdrawal).</p>' +
+        const totalInvested = (r) => (r.portfolio_cost || 0) + (r.mf_portfolio_cost || 0);
+        const fmtDelta = (delta, prevVal) => {
+          if (delta == null) return '–';
+          const pct = prevVal > 0 ? ((delta / prevVal) * 100).toFixed(2) : '';
+          const cls = delta >= 0 ? 'pct-up' : 'pct-down';
+          return '<span class="' + cls + '">' + (delta >= 0 ? '+' : '') + fmt(delta) + (pct ? ' (' + (delta >= 0 ? '+' : '') + pct + '%)' : '') + '</span>';
+        };
+        let tableHtml = '<h3 style="margin:0 0 12px;">Summary by stored date (Stocks vs MF vs Nifty 50)</h3>' +
+          '<p class="text-muted" style="font-size:0.85rem; margin-bottom: 16px;">Category-wise: <strong>Stocks (Equity)</strong>, <strong>Mutual Funds (MF)</strong>, <strong>Nifty 50</strong>. Total invested = EQ cost + MF cost. Change vs prev = total value change from previous stored date. Stocks Δ / MF Δ = category-wise growth. If a date shows <strong>(EQ only)</strong>, that snapshot has no MF data—re-import from an Excel with both Equity and Mutual Funds sheets for correct totals.</p>' +
           '<div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr>' +
-          '<th>Date</th><th>Stocks Value</th><th>MF Value</th><th>Total</th><th>Change vs prev</th><th>Month Invested</th><th>Month Sold</th><th>Nifty 50</th><th>vs Nifty</th>' +
+          '<th>Date</th><th>Stocks (EQ) Value</th><th>MF Value</th><th>Total</th><th>Total invested</th><th>Change vs prev</th><th>Stocks Δ</th><th>MF Δ</th><th>Month Invested</th><th>Month Sold</th><th>Nifty 50</th><th>vs Nifty</th>' +
           '</tr></thead><tbody>' +
           rows.map((r, i) => {
             const total = (r.portfolio_value || 0) + (r.mf_portfolio_value || 0);
-            const prevTotal = i < rows.length - 1 ? (rows[i + 1].portfolio_value || 0) + (rows[i + 1].mf_portfolio_value || 0) : null;
+            const invested = totalInvested(r);
+            const prev = i < rows.length - 1 ? rows[i + 1] : null;
+            const prevTotal = prev ? (prev.portfolio_value || 0) + (prev.mf_portfolio_value || 0) : null;
             const change = prevTotal != null ? total - prevTotal : null;
+            const stocksDelta = prev != null ? (r.portfolio_value || 0) - (prev.portfolio_value || 0) : null;
+            const mfDelta = prev != null ? (r.mf_portfolio_value || 0) - (prev.mf_portfolio_value || 0) : null;
             let changeCell = '–';
             if (change != null) {
               const pct = prevTotal > 0 ? ((change / prevTotal) * 100).toFixed(2) : '';
@@ -798,8 +874,46 @@
               const pct = (((nifty - firstNifty) / firstNifty) * 100).toFixed(2);
               vsNifty = pct >= 0 ? '+' + pct + '%' : pct + '%';
             }
-            return '<tr><td>' + r.date + '</td><td>' + fmt(r.portfolio_value) + '</td><td>' + fmt(r.mf_portfolio_value) + '</td><td><strong>' + fmt(total) + '</strong></td><td>' + changeCell + '</td><td class="pct-up">' + fmt(r.month_buy) + '</td><td class="pct-down">' + fmt(r.month_sell) + '</td><td>' + (nifty != null ? nifty.toLocaleString() : '–') + '</td><td>' + vsNifty + '</td></tr>';
+            const mfZero = (r.mf_portfolio_value || 0) === 0;
+            const prevHasMf = prev && (prev.mf_portfolio_value || 0) > 0;
+            const nextHasMf = i > 0 && (rows[i - 1].mf_portfolio_value || 0) > 0;
+            const incompleteNote = mfZero && (prevHasMf || nextHasMf) ? ' <small class="text-muted" title="This date has no MF data; change vs prev may be misleading">(EQ only)</small>' : '';
+            return '<tr><td>' + r.date + incompleteNote + '</td><td>' + fmt(r.portfolio_value) + '</td><td>' + fmt(r.mf_portfolio_value) + '</td><td><strong>' + fmt(total) + '</strong></td><td>' + fmt(invested) + '</td><td>' + changeCell + '</td><td>' + fmtDelta(stocksDelta, prev ? prev.portfolio_value : 0) + '</td><td>' + fmtDelta(mfDelta, prev ? prev.mf_portfolio_value : 0) + '</td><td class="pct-up">' + fmt(r.month_buy) + '</td><td class="pct-down">' + fmt(r.month_sell) + '</td><td>' + (nifty != null ? nifty.toLocaleString() : '–') + '</td><td>' + vsNifty + '</td></tr>';
           }).join('') + '</tbody></table></div>';
+
+        // Monthly summary: group by YYYY-MM, take last stored date in each month
+        const byMonth = {};
+        rows.forEach(r => {
+          const month = r.date.substring(0, 7);
+          if (!byMonth[month] || byMonth[month].date < r.date) byMonth[month] = r;
+        });
+        const months = Object.keys(byMonth).sort().reverse();
+        let monthHtml = '';
+        if (months.length > 0) {
+          monthHtml = '<h3 style="margin:24px 0 12px;">Monthly summary</h3>' +
+            '<p class="text-muted" style="font-size:0.85rem; margin-bottom: 16px;">One row per month (latest stored date in that month). Growth = change in Total vs previous month’s end.</p>' +
+            '<div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr>' +
+            '<th>Month</th><th>End date</th><th>Total value</th><th>Total invested</th><th>Growth vs prev month</th><th>Month invested (EQ)</th><th>Month sold</th>' +
+            '</tr></thead><tbody>';
+          months.forEach((ym, idx) => {
+            const r = byMonth[ym];
+            const total = (r.portfolio_value || 0) + (r.mf_portfolio_value || 0);
+            const invested = totalInvested(r);
+            const prevYm = idx < months.length - 1 ? months[idx + 1] : null;
+            const prevR = prevYm ? byMonth[prevYm] : null;
+            const prevTotal = prevR ? (prevR.portfolio_value || 0) + (prevR.mf_portfolio_value || 0) : null;
+            const growth = prevTotal != null ? total - prevTotal : null;
+            let growthCell = '–';
+            if (growth != null) {
+              const pct = prevTotal > 0 ? ((growth / prevTotal) * 100).toFixed(2) : '';
+              growthCell = '<span class="' + (growth >= 0 ? 'pct-up' : 'pct-down') + '">' + (growth >= 0 ? '+' : '') + fmt(growth) + (pct ? ' (' + (growth >= 0 ? '+' : '') + pct + '%)' : '') + '</span>';
+            }
+            const monthLabel = new Date(ym + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+            monthHtml += '<tr><td>' + monthLabel + '</td><td>' + r.date + '</td><td><strong>' + fmt(total) + '</strong></td><td>' + fmt(invested) + '</td><td>' + growthCell + '</td><td class="pct-up">' + fmt(r.month_buy) + '</td><td class="pct-down">' + fmt(r.month_sell) + '</td></tr>';
+          });
+          monthHtml += '</tbody></table></div>';
+        }
+        el.innerHTML = tableHtml + monthHtml;
       } catch (e) {
         el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
       }
@@ -880,31 +994,36 @@
 
     document.getElementById('by-date-select')?.addEventListener('change', () => loadByDatePage());
 
+    function pathForPage(pageId) { return pageId === 'dashboard' ? '/' : '/' + pageId; }
+    function pageFromPathname(pathname) {
+      const p = (pathname || '/').replace(/\/$/, '') || '/';
+      if (p === '/') return 'dashboard';
+      const page = p.slice(1);
+      return ['holdings', 'monthly', 'db', 'by-date'].includes(page) ? page : 'dashboard';
+    }
     document.querySelectorAll('#main-nav a').forEach(a => {
-      a.addEventListener('click', (e) => { e.preventDefault(); showPage(a.dataset.page); });
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const pageId = a.dataset.page;
+        history.pushState({ page: pageId }, '', pathForPage(pageId));
+        showPage(pageId);
+      });
     });
-    window.addEventListener('hashchange', () => {
-      const page = (location.hash || '#dashboard').slice(1) || 'dashboard';
-      if (['dashboard', 'holdings', 'monthly', 'db', 'by-date'].includes(page)) showPage(page);
+    window.addEventListener('popstate', (e) => {
+      const page = (e.state && e.state.page) || pageFromPathname(location.pathname);
+      showPage(page);
     });
-    if (location.hash) window.dispatchEvent(new Event('hashchange'));
-    else showPage('dashboard');
+    const initialPage = pageFromPathname(location.pathname);
+    showPage(initialPage);
 
     document.getElementById('btn-refresh')?.addEventListener('click', () => {
       loadPortfolioSummary(true);
     });
 
-    document.getElementById('btn-clear-cache')?.addEventListener('click', async () => {
-      if (!confirm('Clear cache? This will clear stored portfolio data from the DB. The page will then reload with fresh data (browser cache bypassed).')) return;
-      try {
-        const r = await fetch('/api/cache/clear', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || 'Failed to clear cache');
-        showAlert('Cache cleared. ' + (d.portfolio_rows_deleted || 0) + ' row(s) deleted from DB. Loading fresh data…', 'info');
-        await loadPortfolioSummary(true);
-      } catch (e) {
-        showAlert('Clear cache failed: ' + e.message, 'error');
-      }
+    document.getElementById('btn-clear-cache')?.addEventListener('click', () => {
+      if (!confirm('Clear browser cache only? Page will refresh. Your saved portfolio data is not deleted.')) return;
+      showAlert('Refreshing…', 'info');
+      window.location.reload();
     });
 
     document.getElementById('btn-historical')?.addEventListener('click', async () => {

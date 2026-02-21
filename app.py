@@ -58,8 +58,12 @@ def _migrate_data_to_data_dir():
 
 
 @app.route("/")
+@app.route("/holdings")
+@app.route("/monthly")
+@app.route("/db")
+@app.route("/by-date")
 def index():
-    """Serve main page."""
+    """Serve main page (separate URLs for each section)."""
     return render_template("index.html", has_api_key=bool(config.API_KEY))
 
 

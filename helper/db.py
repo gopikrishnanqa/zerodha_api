@@ -204,12 +204,18 @@ def save_portfolio_day(
     mf_portfolio_cost: float = 0,
     price_changes: dict | None = None,
 ):
-    """Save daily aggregates to portfolio_daily and one row per stock/MF to holdings_equity_daily and holdings_mf_daily."""
+    """Save daily aggregates to portfolio_daily and one row per stock/MF to holdings_equity_daily and holdings_mf_daily.
+    One row per month: any existing row for the same month (YYYY-MM) is removed before inserting this date."""
     mf_holdings = mf_holdings or []
     price_changes = price_changes or {}
     conn = get_db()
     date_str = d.isoformat()
+    month_prefix = date_str[:7] + "%"  # e.g. "2026-02%"
     now = datetime.now().isoformat()
+    # One row per month: remove any other date in this month first
+    conn.execute("DELETE FROM portfolio_daily WHERE date LIKE ?", (month_prefix,))
+    conn.execute("DELETE FROM holdings_equity_daily WHERE date LIKE ?", (month_prefix,))
+    conn.execute("DELETE FROM holdings_mf_daily WHERE date LIKE ?", (month_prefix,))
     # Aggregates only (no holdings JSON in portfolio_daily)
     conn.execute("""
         INSERT OR REPLACE INTO portfolio_daily
@@ -294,8 +300,16 @@ def clear_portfolio_cache() -> int:
     return n
 
 
+def _row_to_dict(r, include_mf_cost=True):
+    """Convert sqlite3.Row to dict; Row has no .get() so APIs need plain dicts."""
+    d = dict(r)
+    if include_mf_cost and "mf_portfolio_cost" not in d:
+        d["mf_portfolio_cost"] = 0
+    return d
+
+
 def get_cache_status_rows(limit: int = 31) -> list:
-    """Return list of rows for cache-status API (from portfolio_daily)."""
+    """Return list of dicts for cache-status/summary-by-date APIs (from portfolio_daily)."""
     conn = get_db()
     try:
         rows = conn.execute(
@@ -307,9 +321,8 @@ def get_cache_status_rows(limit: int = 31) -> list:
             "SELECT date, portfolio_value, portfolio_cost, buy_amount, sell_amount, month_buy, month_sell, num_holdings, mf_portfolio_value, created_at FROM portfolio_daily ORDER BY date DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        rows = [dict(r) | {"mf_portfolio_cost": 0} for r in rows]
     conn.close()
-    return rows
+    return [_row_to_dict(r) for r in rows]
 
 
 def get_dates_list(limit: int = 365) -> list:
