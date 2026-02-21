@@ -1,0 +1,8 @@
+.env
+__pycache__/
+monthly_activity.json
+portfolio.db
+*.pyc
+.venv/
+venv/
+*.csv

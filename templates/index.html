@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zerodha Portfolio - Holdings & Price Comparison</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --up: #22c55e;
+      --down: #ef4444;
+      --radius: 10px;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 24px;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 32px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin: 0;
+      letter-spacing: -0.02em;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      border-radius: var(--radius);
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+      font-family: inherit;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+    .btn-primary:hover {
+      background: var(--accent-hover);
+    }
+    .btn-secondary {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      background: #21262d;
+      border-color: var(--text-muted);
+    }
+    .btn-success {
+      background: #166534;
+      color: white;
+    }
+    .btn-success:hover {
+      background: #15803d;
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .alert {
+      padding: 14px 18px;
+      border-radius: var(--radius);
+      margin-bottom: 24px;
+      font-size: 0.9rem;
+    }
+    .alert-error {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+    }
+    .alert-info {
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      color: #93c5fd;
+    }
+    .alert-warning {
+      background: rgba(234, 179, 8, 0.15);
+      border: 1px solid rgba(234, 179, 8, 0.4);
+      color: #fde047;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .table-wrap {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+    th {
+      text-align: left;
+      padding: 14px 16px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: rgba(0,0,0,0.2);
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+    }
+    th:hover { color: var(--text); }
+    th.sort-asc::after { content: ' ▲'; font-size: 0.7em; opacity: 0.8; }
+    th.sort-desc::after { content: ' ▼'; font-size: 0.7em; opacity: 0.8; }
+    td {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+    }
+    tr:hover td {
+      background: rgba(255,255,255,0.02);
+    }
+    tr.total-row td {
+      background: rgba(0,0,0,0.25);
+      border-top: 2px solid var(--border);
+      font-weight: 600;
+    }
+    .pct-up { color: var(--up); }
+    .pct-down { color: var(--down); }
+    .pct-na { color: var(--text-muted); font-style: italic; }
+    .loading-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      background: var(--text-muted);
+      border-radius: 50%;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px 24px;
+      color: var(--text-muted);
+    }
+    .empty-state p {
+      margin: 0 0 16px;
+      font-size: 1rem;
+    }
+    .empty-state small {
+      font-size: 0.85rem;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 500;
+    }
+    .status-connected {
+      background: rgba(34, 197, 94, 0.2);
+      color: var(--up);
+    }
+    .status-disconnected {
+      background: rgba(139, 148, 158, 0.2);
+      color: var(--text-muted);
+    }
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .summary-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .summary-card .label { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px; }
+    .summary-card .value { font-size: 1.25rem; font-weight: 700; }
+    .summary-card.summary-hint .value { color: var(--text-muted); }
+    .cache-indicator { margin-bottom: 12px; font-size: 0.85rem; color: var(--text-muted); }
+    .comparison-cards {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .comparison-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .comparison-card h3 { font-size: 0.9rem; margin: 0 0 12px; color: var(--text-muted); }
+    .comparison-card table { width: 100%; font-size: 0.875rem; }
+    .comparison-card td { padding: 6px 0; }
+    .comparison-card .diff-up { color: var(--up); }
+    .comparison-card .diff-down { color: var(--down); }
+    .section-title { margin: 0 0 12px; padding: 14px 16px 0; font-size: 1rem; color: var(--text-muted); }
+    .comparison-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 2px;
+    }
+    footer {
+      margin-top: 32px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Zerodha Portfolio</h1>
+      <div class="actions">
+        <span id="status-badge" class="status-badge status-disconnected">Not connected</span>
+        <a href="/api/login" id="btn-connect" class="btn btn-primary" style="display:none;">Connect with Zerodha</a>
+        <span id="connect-hint" style="display:none; font-size: 0.85rem; color: var(--text-muted);">Set KITE_API_KEY in .env to enable</span>
+        <button id="btn-refresh" class="btn btn-secondary" style="display:none;" title="Force fetch fresh data and update today's record">Refresh data</button>
+        <button id="btn-logout" class="btn btn-secondary" style="display:none;">Logout</button>
+        <button id="btn-export" class="btn btn-success" style="display:none;" disabled>Export CSV</button>
+      </div>
+    </header>
+
+    <div id="alerts"></div>
+    <div id="cache-indicator" class="cache-indicator" style="display:none;"></div>
+    <div id="db-status-wrap" style="display:none; margin-bottom: 16px;">
+      <button type="button" id="btn-show-db" class="btn btn-secondary" style="font-size: 0.85rem;">View what’s stored in DB</button>
+      <div id="db-status" class="card" style="margin-top: 12px; padding: 16px; display:none;"></div>
+    </div>
+    <div id="summary-cards" class="summary-cards" style="display:none;"></div>
+    <div id="comparison-cards" class="comparison-cards" style="display:none;"></div>
+    <div id="main-content"></div>
+
+    <footer>
+      <p>Price comparison (7d, 30d, 6m, 1y) and Company use market data (similar to Google Finance) for <strong>UI display only</strong>. Invested/Sold (month) are from order history; run the app daily to build month totals. CSV export happens only when you click Export.</p>
+    </footer>
+  </div>
+
+  <script>
+    const hasApiKey = {{ 'true' if has_api_key else 'false' }};
+
+    function showAlert(msg, type = 'info') {
+      const el = document.getElementById('alerts');
+      el.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+    }
+    function clearAlerts() {
+      document.getElementById('alerts').innerHTML = '';
+    }
+
+    async function checkAuth() {
+      try {
+        const r = await fetch('/api/portfolio-summary', { credentials: 'same-origin' });
+        if (r.ok) {
+          updateUI(true);
+          const data = await r.json();
+          loadPortfolioSummaryWithData(data);
+          return;
+        }
+        updateUI(false);
+      } catch (e) {
+        updateUI(false);
+      }
+    }
+
+    function updateUI(connected) {
+      const badge = document.getElementById('status-badge');
+      const btnConnect = document.getElementById('btn-connect');
+      const btnRefresh = document.getElementById('btn-refresh');
+      const btnLogout = document.getElementById('btn-logout');
+      const btnExport = document.getElementById('btn-export');
+
+      const hint = document.getElementById('connect-hint');
+      if (connected) {
+        badge.textContent = 'Connected';
+        badge.className = 'status-badge status-connected';
+        btnConnect.style.display = 'none';
+        if (btnRefresh) btnRefresh.style.display = 'inline-flex';
+        if (hint) hint.style.display = 'none';
+        btnLogout.style.display = 'inline-flex';
+        btnExport.style.display = 'inline-flex';
+      } else {
+        badge.textContent = 'Not connected';
+        badge.className = 'status-badge status-disconnected';
+        btnConnect.style.display = 'inline-flex';
+        if (btnRefresh) btnRefresh.style.display = 'none';
+        if (hint) hint.style.display = hasApiKey ? 'none' : 'inline';
+        btnLogout.style.display = 'none';
+        btnExport.style.display = 'none';
+      }
+    }
+
+    let holdingsData = [];
+    let sortCol = 'value';
+    let sortDir = 1;
+
+    function fmt(num) {
+      return '₹' + (num || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+    }
+
+    function makeSortable() {
+      const ths = document.querySelectorAll('#holdings-table th[data-sort]');
+      ths.forEach(th => {
+        th.addEventListener('click', () => {
+          const col = th.dataset.sort;
+          if (sortCol === col) sortDir = -sortDir;
+          else { sortCol = col; sortDir = 1; }
+          ths.forEach(t => t.classList.remove('sort-asc', 'sort-desc'));
+          th.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
+          reorderTableRows();
+        });
+      });
+    }
+
+    function sortHoldings(holdings) {
+      const cols = {
+        symbol: h => (h.tradingsymbol || '-').toLowerCase(),
+        exchange: h => (h.exchange || '').toLowerCase(),
+        qty: h => h.quantity || 0,
+        value: h => (h.quantity || 0) * (parseFloat(h.last_price) || 0),
+        pnl: h => parseFloat(h.pnl) || 0,
+        pnlPct: h => {
+          const q = h.quantity || 0, a = parseFloat(h.average_price) || 0;
+          return a && q ? (parseFloat(h.pnl) || 0) / (a * q) * 100 : 0;
+        },
+        investedMonth: h => (h._investedMonth || 0),
+        soldMonth: h => (h._soldMonth || 0),
+      };
+      const key = cols[sortCol];
+      if (!key) return holdings;
+      return [...holdings].sort((a, b) => {
+        const va = key(a), vb = key(b);
+        if (typeof va === 'string') return sortDir * (va < vb ? -1 : va > vb ? 1 : 0);
+        return sortDir * (va - vb);
+      });
+    }
+
+    function renderHoldingsTable(holdings) {
+      const sorted = sortHoldings(holdings);
+      const tbody = document.getElementById('holdings-body');
+      tbody.innerHTML = '';
+      let totalValue = 0;
+      sorted.forEach(h => {
+        const qty = h.quantity || 0;
+        const avg = parseFloat(h.average_price) || 0;
+        const last = parseFloat(h.last_price) || 0;
+        const pnl = parseFloat(h.pnl) || 0;
+        const val = qty * last;
+        totalValue += val;
+        const pnlPct = avg && qty ? ((pnl / (avg * qty)) * 100).toFixed(2) : '-';
+        const tr = document.createElement('tr');
+        tr.dataset.symbol = h.tradingsymbol;
+        tr.dataset.exchange = h.exchange || 'NSE';
+        tr.innerHTML = `
+          <td><strong>${h.tradingsymbol || '-'}</strong></td>
+          <td>${h.exchange || '-'}</td>
+          <td>${qty}</td>
+          <td>${fmt(avg)}</td>
+          <td>${fmt(last)}</td>
+          <td><strong>${fmt(val)}</strong></td>
+          <td class="${pnl >= 0 ? 'pct-up' : 'pct-down'}">${fmt(pnl)}</td>
+          <td class="${pnl >= 0 ? 'pct-up' : 'pct-down'}">${pnlPct}%</td>
+          <td class="company-cell" data-symbol="${h.tradingsymbol}" data-exchange="${h.exchange || 'NSE'}"><span class="loading-dot"></span></td>
+          <td class="invested-month">${fmt(h._investedMonth)}</td>
+          <td class="sold-month">${fmt(h._soldMonth)}</td>
+          <td class="pct-cell" data-symbol="${h.tradingsymbol}" data-exchange="${h.exchange}" data-period="7d"><span class="loading-dot"></span></td>
+          <td class="pct-cell" data-symbol="${h.tradingsymbol}" data-exchange="${h.exchange}" data-period="30d"><span class="loading-dot"></span></td>
+          <td class="pct-cell" data-symbol="${h.tradingsymbol}" data-exchange="${h.exchange}" data-period="6m"><span class="loading-dot"></span></td>
+          <td class="pct-cell" data-symbol="${h.tradingsymbol}" data-exchange="${h.exchange}" data-period="1y"><span class="loading-dot"></span></td>
+        `;
+        tbody.appendChild(tr);
+      });
+      const trTotal = document.createElement('tr');
+      trTotal.className = 'total-row';
+      trTotal.innerHTML = `
+        <td colspan="5"><strong>Total</strong></td>
+        <td><strong>${fmt(totalValue)}</strong></td>
+        <td colspan="9"></td>
+      `;
+      tbody.appendChild(trTotal);
+    }
+
+    function reorderTableRows() {
+      const sorted = sortHoldings(holdingsData);
+      const tbody = document.getElementById('holdings-body');
+      const totalRow = tbody.querySelector('tr.total-row');
+      const rows = [...tbody.querySelectorAll('tr:not(.total-row)')];
+      const rowByKey = {};
+      rows.forEach(r => { rowByKey[`${r.dataset.symbol}|${r.dataset.exchange}`] = r; });
+      sorted.forEach(h => {
+        const k = `${h.tradingsymbol}|${h.exchange || 'NSE'}`;
+        const row = rowByKey[k];
+        if (row) tbody.insertBefore(row, totalRow);
+      });
+    }
+
+    async function loadPortfolioSummary(forceRefresh) {
+      const main = document.getElementById('main-content');
+      main.innerHTML = '<div class="card"><div class="empty-state"><p>Loading portfolio…</p></div></div>';
+      try {
+        const url = '/api/portfolio-summary' + (forceRefresh ? '?refresh=1' : '');
+        const res = await fetch(url, { credentials: 'same-origin' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to load portfolio');
+        loadPortfolioSummaryWithData(data);
+      } catch (err) {
+        document.getElementById('main-content').innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+        document.getElementById('summary-cards').style.display = 'none';
+        document.getElementById('cache-indicator').style.display = 'none';
+        document.getElementById('comparison-cards').style.display = 'none';
+      }
+    }
+
+    function loadPortfolioSummaryWithData(data) {
+      const main = document.getElementById('main-content');
+      const summaryEl = document.getElementById('summary-cards');
+      const cacheEl = document.getElementById('cache-indicator');
+      const comparisonEl = document.getElementById('comparison-cards');
+
+      try {
+
+        const mps = data.month_per_stock || {};
+        let holdings = (data.holdings || []).map(h => {
+          const k = `${h.tradingsymbol}|${h.exchange || 'NSE'}`;
+          const v = mps[k] || {};
+          return { ...h, _investedMonth: v.bought || 0, _soldMonth: v.sold || 0 };
+        });
+        const mfHoldings = data.mf_holdings || [];
+
+        document.getElementById('btn-export').disabled = holdings.length === 0 && mfHoldings.length === 0;
+
+        cacheEl.innerHTML = data.fromCache
+          ? `Data from cache for ${data.date}. Stocks + MF (${mfHoldings.length} fund(s)). Click "Refresh data" to fetch fresh from Zerodha.`
+          : `Live data fetched for ${data.date}.`;
+        cacheEl.style.display = 'block';
+        document.getElementById('db-status-wrap').style.display = 'block';
+        const mfValue = data.mf_portfolio_value ?? mfHoldings.reduce((s, h) => s + (parseFloat(h.quantity) || 0) * (parseFloat(h.last_price) || 0), 0);
+        const totalVal = (data.portfolio_value ?? holdings.reduce((s, h) => s + (h.quantity || 0) * (parseFloat(h.last_price) || 0), 0)) + mfValue;
+
+        if (holdings.length === 0 && mfHoldings.length === 0) {
+          main.innerHTML = '<div class="card"><div class="empty-state"><p>No holdings found</p><small>Connect with Zerodha. Equity: delivery holdings. MF: Coin holdings.</small></div></div>';
+          summaryEl.style.display = 'none';
+          comparisonEl.style.display = 'none';
+          return;
+        }
+        const monthB = data.month_buy ?? 0;
+        const monthS = data.month_sell ?? 0;
+        const todayB = data.buy_amount ?? 0;
+        const todayS = data.sell_amount ?? 0;
+
+        const allZero = (monthB + monthS + todayB + todayS) === 0;
+        summaryEl.innerHTML = `
+          <div class="summary-card"><div class="label">Total Portfolio Value (Stocks + MF)</div><div class="value">${fmt(totalVal)}</div></div>
+          <div class="summary-card"><div class="label">Stocks Value</div><div class="value">${fmt(data.portfolio_value)}</div></div>
+          <div class="summary-card"><div class="label">MF Value</div><div class="value">${fmt(mfValue)}</div></div>
+          <div class="summary-card"><div class="label">Total Invested (Cost)</div><div class="value">${fmt(data.portfolio_cost)}</div></div>
+          <div class="summary-card"><div class="label">Invested this month (${data.month_name || '—'})</div><div class="value pct-up">${fmt(monthB)}</div></div>
+          <div class="summary-card"><div class="label">Sold this month</div><div class="value pct-down">${fmt(monthS)}</div></div>
+          <div class="summary-card"><div class="label">Today: Bought / Sold</div><div class="value">${fmt(todayB)} / ${fmt(todayS)}</div></div>
+          ${allZero ? '<div class="summary-card summary-hint" style="grid-column: 1 / -1;"><div class="label">Why ₹0?</div><div class="value" style="font-size: 0.85rem; font-weight: 400;">Zerodha API returns <strong>only today’s orders</strong>. Today shows trades done today. Month totals grow when you open this app on days you trade.</div></div>' : ''}
+        `;
+        summaryEl.style.display = 'grid';
+
+        if (data.comparison) {
+          const c = data.comparison;
+          const prev = c.previous_date;
+          const invDiff = c.invested_diff;
+          const buyDiff = c.buy_diff;
+          const sellDiff = c.sell_diff;
+          const valDiff = c.portfolio_value_diff;
+          const invCls = invDiff >= 0 ? 'diff-up' : 'diff-down';
+          const buyCls = buyDiff >= 0 ? 'diff-up' : 'diff-down';
+          const sellCls = sellDiff >= 0 ? 'diff-up' : 'diff-down';
+          const valCls = valDiff >= 0 ? 'diff-up' : 'diff-down';
+          comparisonEl.innerHTML = `
+            <div class="comparison-card">
+              <h3>Change since last stored (${prev})</h3>
+              <table>
+                <tr><td>Invested (cost) change</td><td class="${invCls}">${invDiff >= 0 ? '+' : ''}${fmt(invDiff)}</td></tr>
+                <tr><td>Portfolio value change</td><td class="${valCls}">${valDiff >= 0 ? '+' : ''}${fmt(valDiff)}</td></tr>
+                <tr><td>Buy amount change</td><td class="${buyCls}">${buyDiff >= 0 ? '+' : ''}${fmt(buyDiff)}</td></tr>
+                <tr><td>Sell amount change</td><td class="${sellCls}">${sellDiff >= 0 ? '+' : ''}${fmt(sellDiff)}</td></tr>
+              </table>
+            </div>
+          `;
+          comparisonEl.style.display = 'block';
+        } else {
+          comparisonEl.style.display = 'none';
+        }
+
+        holdingsData = holdings;
+        let mainHtml = '';
+        if (holdings.length > 0) {
+          mainHtml = `
+            <div class="card"><h3 class="section-title">Stocks</h3><div class="table-wrap"><table id="holdings-table">
+              <thead><tr>
+                <th data-sort="symbol">Symbol</th>
+                <th data-sort="exchange">Exchange</th>
+                <th data-sort="qty">Qty</th>
+                <th>Avg Price</th>
+                <th>LTP</th>
+                <th data-sort="value">Value</th>
+                <th data-sort="pnl">P&L</th>
+                <th data-sort="pnlPct">P&L %</th>
+                <th>Company (Market)</th>
+                <th data-sort="investedMonth">Invested (Month)</th>
+                <th data-sort="soldMonth">Sold (Month)</th>
+                <th>7d</th><th>30d</th><th>6m</th><th>1y</th>
+              </tr></thead>
+              <tbody id="holdings-body"></tbody>
+            </table></div></div>
+          `;
+        }
+        if (mfHoldings.length > 0) {
+          const mfRows = mfHoldings.map(h => {
+            const qty = parseFloat(h.quantity) || 0;
+            const avg = parseFloat(h.average_price) || 0;
+            const last = parseFloat(h.last_price) || 0;
+            const val = qty * last;
+            const pnl = parseFloat(h.pnl) || 0;
+            const cost = qty * avg;
+            const pnlPct = cost ? ((pnl / cost) * 100).toFixed(2) : '-';
+            return `<tr>
+              <td><strong>${(h.fund || h.tradingsymbol || '-').replace(/</g, '&lt;')}</strong></td>
+              <td>${(h.folio || '-')}</td>
+              <td>${qty.toFixed(4)}</td>
+              <td>${fmt(avg)}</td>
+              <td>${fmt(last)}</td>
+              <td><strong>${fmt(val)}</strong></td>
+              <td class="${pnl >= 0 ? 'pct-up' : 'pct-down'}">${fmt(pnl)}</td>
+              <td class="${pnl >= 0 ? 'pct-up' : 'pct-down'}">${pnlPct}%</td>
+            </tr>`;
+          }).join('');
+          const mfTotal = mfHoldings.reduce((s, h) => s + (parseFloat(h.quantity) || 0) * (parseFloat(h.last_price) || 0), 0);
+          mainHtml += `
+            <div class="card" style="margin-top: 24px;"><h3 class="section-title">Mutual Funds</h3><div class="table-wrap"><table id="mf-holdings-table" class="holdings-table">
+              <thead><tr>
+                <th>Fund</th><th>Folio</th><th>Units</th><th>Avg NAV</th><th>LTP (NAV)</th><th>Value</th><th>P&L</th><th>P&L %</th>
+              </tr></thead>
+              <tbody>${mfRows}</tbody>
+              <tr class="total-row"><td colspan="5"><strong>Total (MF)</strong></td><td><strong>${fmt(mfTotal)}</strong></td><td colspan="2"></td></tr>
+            </table></div></div>
+          `;
+        }
+        main.innerHTML = mainHtml || '<div class="card"><div class="empty-state"><p>No holdings</p></div></div>';
+
+        if (holdings.length > 0) {
+          renderHoldingsTable(holdingsData);
+          makeSortable();
+          document.querySelector('#holdings-table th[data-sort="value"]')?.classList.add('sort-asc');
+          loadPriceComparisons();
+          loadCompanyNames();
+        }
+      } catch (err) {
+        main.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+        summaryEl.style.display = 'none';
+        cacheEl.style.display = 'none';
+        comparisonEl.style.display = 'none';
+      }
+    }
+
+    async function loadCompanyNames() {
+      const cells = document.querySelectorAll('.company-cell');
+      const pairs = [...new Set([...cells].map(c => c.dataset.symbol + '\x00' + (c.dataset.exchange || 'NSE')))];
+      for (const p of pairs) {
+        const [sym, ex] = p.split('\x00');
+        try {
+          const r = await fetch(`/api/company/${encodeURIComponent(ex)}/${encodeURIComponent(sym)}`, { credentials: 'same-origin' });
+          const d = await r.json();
+          const els = document.querySelectorAll(`.company-cell[data-symbol="${sym.replace(/"/g, '\\"')}"][data-exchange="${(ex || 'NSE').replace(/"/g, '\\"')}"]`);
+          els.forEach(el => { el.innerHTML = d.company ? `<span title="${d.company}">${d.company.length > 25 ? d.company.slice(0, 22) + '…' : d.company}</span>` : '<span class="pct-na">–</span>'; });
+        } catch (e) {
+          document.querySelectorAll(`.company-cell[data-symbol="${sym}"][data-exchange="${ex}"]`).forEach(el => { el.innerHTML = '<span class="pct-na">–</span>'; });
+        }
+      }
+    }
+
+    async function loadPriceComparisons() {
+      const cells = document.querySelectorAll('.pct-cell[data-period]');
+      const pairs = [...new Set([...cells].map(c => c.dataset.symbol + '\x00' + (c.dataset.exchange || 'NSE')))];
+      for (const p of pairs) {
+        const [sym, ex] = p.split('\x00');
+        try {
+          const r = await fetch(`/api/price-history/${encodeURIComponent(ex)}/${encodeURIComponent(sym)}`, { credentials: 'same-origin' });
+          const data = await r.json();
+          for (const period of ['7d', '30d', '6m', '1y']) {
+            const v = data[period];
+            const sel = `.pct-cell[data-symbol="${sym.replace(/"/g, '\\"')}"][data-exchange="${(ex || 'NSE').replace(/"/g, '\\"')}"][data-period="${period}"]`;
+            const els = document.querySelectorAll(sel);
+            for (const el of els) {
+              if (v == null) el.innerHTML = '<span class="pct-na">–</span>';
+              else {
+                const cls = v > 0 ? 'pct-up' : v < 0 ? 'pct-down' : 'pct-na';
+                const sign = v > 0 ? '+' : '';
+                el.innerHTML = `<span class="${cls}">${sign}${v}%</span>`;
+              }
+            }
+          }
+        } catch (e) {
+          for (const period of ['7d', '30d', '6m', '1y']) {
+            const sel = `.pct-cell[data-symbol="${sym.replace(/"/g, '\\"')}"][data-exchange="${(ex || 'NSE').replace(/"/g, '\\"')}"][data-period="${period}"]`;
+            document.querySelectorAll(sel).forEach(el => { el.innerHTML = '<span class="pct-na">–</span>'; });
+          }
+        }
+      }
+    }
+
+    document.getElementById('btn-refresh')?.addEventListener('click', () => {
+      loadPortfolioSummary(true);
+    });
+
+    document.getElementById('btn-show-db')?.addEventListener('click', async () => {
+      const el = document.getElementById('db-status');
+      if (el.style.display === 'block') { el.style.display = 'none'; return; }
+      try {
+        const r = await fetch('/api/cache-status', { credentials: 'same-origin' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Failed');
+        const rows = d.rows || [];
+        el.innerHTML = '<p><strong>Values stored in portfolio.db (SQLite)</strong></p>' +
+          '<p>' + d.stored_dates + ' date(s) stored.</p>' +
+          '<div class="table-wrap"><table style="font-size: 0.8rem;"><thead><tr><th>Date</th><th>Portfolio value</th><th>Cost</th><th>Buy</th><th>Sell</th><th>Month buy</th><th>Month sell</th><th>Holdings</th><th>MF value</th><th>Saved at</th></tr></thead><tbody>' +
+          rows.map(r => '<tr><td>' + r.date + '</td><td>' + fmt(r.portfolio_value) + '</td><td>' + fmt(r.portfolio_cost) + '</td><td>' + fmt(r.buy_amount) + '</td><td>' + fmt(r.sell_amount) + '</td><td>' + fmt(r.month_buy) + '</td><td>' + fmt(r.month_sell) + '</td><td>' + (r.num_holdings || 0) + '</td><td>' + fmt(r.mf_portfolio_value) + '</td><td>' + (r.created_at || '').replace('T', ' ') + '</td></tr>').join('') +
+          '</tbody></table></div>';
+        el.style.display = 'block';
+      } catch (e) {
+        document.getElementById('db-status').innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+        document.getElementById('db-status').style.display = 'block';
+      }
+    });
+
+    document.getElementById('btn-export')?.addEventListener('click', async () => {
+      try {
+        const r = await fetch('/api/export-csv', { credentials: 'same-origin' });
+        if (!r.ok) throw new Error('Export failed');
+        const blob = await r.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `zerodha_holdings_${new Date().toISOString().slice(0,10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch (e) {
+        showAlert('Export failed: ' + e.message, 'error');
+      }
+    });
+
+    document.getElementById('btn-logout')?.addEventListener('click', () => {
+      window.location.href = '/api/logout';
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('error')) {
+      const err = params.get('error');
+      let msg = 'An error occurred.';
+      if (err === 'no_request_token') msg = 'Login was cancelled or no request token received.';
+      if (err === 'missing_api_credentials') msg = 'Configure KITE_API_KEY and KITE_API_SECRET in .env.';
+      if (err === 'token_exchange_failed') msg = 'Token exchange failed. Please try again.';
+      showAlert(msg, 'error');
+      window.history.replaceState({}, '', '/');
+    }
+
+    if (!hasApiKey) {
+      showAlert('Set KITE_API_KEY and KITE_API_SECRET in .env (in the project folder) and <strong>restart the app</strong>. Get API keys from <a href="https://kite.trade" target="_blank" rel="noopener" style="color:#93c5fd;">Kite Connect</a>.', 'warning');
+    }
+
+    document.getElementById('btn-connect')?.addEventListener('click', function(e) {
+      if (!hasApiKey) {
+        e.preventDefault();
+        showAlert('Add KITE_API_KEY and KITE_API_SECRET to your .env file and restart the Flask app (python app.py).', 'error');
+      }
+    });
+
+    checkAuth();
+  </script>
+</body>
+</html>
