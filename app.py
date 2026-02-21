@@ -62,6 +62,7 @@ def _migrate_data_to_data_dir():
 @app.route("/monthly")
 @app.route("/db")
 @app.route("/by-date")
+@app.route("/checklist")
 def index():
     """Serve main page (separate URLs for each section)."""
     return render_template("index.html", has_api_key=bool(config.API_KEY))
@@ -258,6 +259,125 @@ def clear_cache():
     n = db.clear_portfolio_cache()
     log.info("Cache cleared: %d portfolio row(s) deleted from DB", n)
     return jsonify({"ok": True, "portfolio_rows_deleted": n})
+
+
+@app.route("/api/turso-validate")
+@require_auth
+def turso_validate():
+    """Validate Turso connection (URL + token from .env). Returns { ok: bool, message: str }."""
+    try:
+        from helper import turso_sync as ts
+    except ImportError:
+        return jsonify({"ok": False, "message": "Turso sync not available"})
+    ok, message = ts.validate_turso_connection()
+    return jsonify({"ok": ok, "message": message})
+
+
+@app.route("/api/sync-turso", methods=["POST"])
+@require_auth
+def sync_turso():
+    """Push all local portfolio_daily data to Turso (manual or scheduled sync)."""
+    try:
+        from helper import turso_sync as ts
+    except ImportError:
+        return jsonify({"error": "Turso sync not available"}), 500
+    if not ts._turso_enabled():
+        return jsonify({"error": "Turso not configured (set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN)"}), 400
+    db.init_db()
+    dates_list = db.get_dates_list(365)
+    synced = 0
+    for date_str in dates_list or []:
+        try:
+            d = date.fromisoformat(date_str)
+        except ValueError:
+            continue
+        cached = db.get_cached_day(d)
+        if not cached:
+            continue
+        try:
+            holdings = json.loads(cached.get("holdings_json") or "[]")
+            mf_holdings = json.loads(cached.get("mf_holdings_json") or "[]")
+            month_per_stock = json.loads(cached.get("month_per_stock_json") or "{}")
+            price_changes = json.loads(cached.get("price_changes_json") or "{}")
+            ts.save_portfolio_day_turso(
+                d,
+                float(cached.get("portfolio_value") or 0),
+                float(cached.get("portfolio_cost") or 0),
+                float(cached.get("buy_amount") or 0),
+                float(cached.get("sell_amount") or 0),
+                float(cached.get("month_buy") or 0),
+                float(cached.get("month_sell") or 0),
+                holdings,
+                month_per_stock,
+                mf_holdings=mf_holdings,
+                mf_portfolio_value=float(cached.get("mf_portfolio_value") or 0),
+                mf_portfolio_cost=float(cached.get("mf_portfolio_cost") or 0),
+                price_changes=price_changes,
+            )
+            synced += 1
+        except Exception as e:
+            log.exception("Turso sync failed for %s", date_str)
+            return jsonify({"error": "Turso sync failed: " + str(e), "synced_so_far": synced}), 500
+    checklist_synced = 0
+    for row in db.get_all_checklist_rows():
+        try:
+            ts.set_checklist_turso(row[0], row[1], row[2], row[3], row[4])
+            checklist_synced += 1
+        except Exception as e:
+            log.warning("Turso checklist sync failed for %s %s: %s", row[0], row[1], e)
+    log.info("Turso manual sync: %d date(s), %d checklist row(s)", synced, checklist_synced)
+    return jsonify({"synced": True, "dates": synced, "checklist_rows": checklist_synced})
+
+
+@app.route("/api/checklist")
+@require_auth
+def api_checklist_get():
+    """Return checklist data for current month, year, quarter (for Checklist page)."""
+    db.init_db()
+    now = date.today()
+    month_key = now.strftime("%Y-%m")
+    year_key = str(now.year)
+    q = (now.month - 1) // 3 + 1
+    quarter_key = "%s-Q%d" % (now.year, q)
+    out = {}
+    for period_type, period_key in [("month", month_key), ("year", year_key), ("quarter", quarter_key)]:
+        row = db.get_checklist(period_type, period_key)
+        out[period_type] = {
+            "key": period_key,
+            "state": (row or {}).get("state") or {},
+            "custom": (row or {}).get("custom") or [],
+            "archived": (row or {}).get("archived") or [],
+        }
+    return jsonify(out)
+
+
+@app.route("/api/checklist", methods=["POST"])
+@require_auth
+def api_checklist_post():
+    """Save checklist for one period. Body: period_type, period_key, state, custom, archived."""
+    data = request.get_json(force=True, silent=True) or {}
+    period_type = (data.get("period_type") or "").strip()
+    period_key = (data.get("period_key") or "").strip()
+    if period_type not in ("month", "year", "quarter") or not period_key:
+        return jsonify({"error": "Need period_type (month|year|quarter) and period_key"}), 400
+    state = data.get("state")
+    custom = data.get("custom")
+    archived = data.get("archived")
+    if state is None:
+        state = {}
+    if custom is None:
+        custom = []
+    if archived is None:
+        archived = []
+    if not isinstance(state, dict):
+        state = {}
+    if not isinstance(custom, list):
+        custom = []
+    if not isinstance(archived, list):
+        archived = []
+    db.init_db()
+    db.set_checklist(period_type, period_key, state, custom, archived)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/cache-status")

@@ -359,6 +359,31 @@
     .nav a.active { color: var(--accent); background: rgba(59, 130, 246, 0.15); }
     .page { display: none; }
     .page.active { display: block; }
+    .checklist-period { margin-bottom: 32px; }
+    .checklist-period h3 { font-size: 1.15rem; margin-bottom: 8px; color: var(--accent); display: flex; align-items: center; gap: 8px; }
+    .checklist-section { margin-bottom: 20px; }
+    .checklist-section h4 { font-size: 1rem; color: var(--text-muted); margin-bottom: 10px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+    .checklist-list { list-style: none; padding: 0; margin: 0; }
+    .checklist-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-radius: 6px; }
+    .checklist-item:hover { background: rgba(255,255,255,0.03); }
+    .checklist-item input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); }
+    .checklist-item label { cursor: pointer; flex: 1; font-size: 0.9rem; }
+    .checklist-item.done label { text-decoration: line-through; color: var(--text-muted); }
+    .checklist-item-actions { margin-left: auto; display: flex; gap: 6px; }
+    .checklist-item-actions .btn-link { background: none; border: none; color: var(--text-muted); font-size: 0.8rem; cursor: pointer; padding: 2px 6px; text-decoration: none; }
+    .checklist-item-actions .btn-link:hover { color: var(--accent); }
+    .checklist-add-form { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .checklist-add-form input { flex: 1; min-width: 180px; padding: 8px 12px; border-radius: 6px; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 0.9rem; }
+    .checklist-add-form .btn-add { padding: 8px 14px; font-size: 0.85rem; }
+    .checklist-archived { margin-top: 12px; }
+    .checklist-archived summary { cursor: pointer; color: var(--text-muted); font-size: 0.9rem; }
+    .checklist-archived ul { list-style: none; padding: 0; margin: 8px 0 0 0; }
+    .checklist-archived .restore-btn { font-size: 0.8rem; padding: 2px 8px; }
+    .checklist-toolbar { margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .checklist-toolbar label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem; user-select: none; }
+    .checklist-toolbar input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); }
+    #checklist-content.checklist-hide-done .checklist-item.done { display: none; }
+    .checklist-badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: var(--card); border: 1px solid var(--border); color: var(--text-muted); }
     .text-muted { color: var(--text-muted); }
     a.nav-link { color: var(--accent); text-decoration: none; }
     a.nav-link:hover { text-decoration: underline; }
@@ -373,6 +398,8 @@
         <a href="/api/login" id="btn-connect" class="btn btn-primary" style="display:none;">Connect with Zerodha</a>
         <span id="connect-hint" style="display:none; font-size: 0.85rem; color: var(--text-muted);">Set KITE_API_KEY in .env to enable</span>
         <button id="btn-refresh" class="btn btn-secondary" style="display:none;" title="Fetch fresh data from Zerodha">Refresh data</button>
+        <button id="btn-sync-turso" class="btn btn-secondary" style="display:none;" title="Push local DB to Turso">Sync to Turso</button>
+        <button id="btn-validate-turso" class="btn btn-secondary" style="display:none;" title="Test Turso URL and token from .env">Validate Turso</button>
         <button id="btn-clear-cache" class="btn btn-secondary" style="display:none;">Clear cache</button>
         <button id="btn-logout" class="btn btn-secondary" style="display:none;">Logout</button>
         <button id="btn-export" class="btn btn-success" style="display:none;" disabled>Export CSV</button>
@@ -386,6 +413,7 @@
       <a href="/monthly" data-page="monthly">Monthly Summary</a>
       <a href="/db" data-page="db">DB View</a>
       <a href="/by-date" data-page="by-date">By Date</a>
+      <a href="/checklist" data-page="checklist">Checklist</a>
     </nav>
 
     <div id="page-dashboard" class="page">
@@ -420,6 +448,10 @@
       <div id="by-date-content"></div>
     </div>
 
+    <div id="page-checklist" class="page">
+      <div id="checklist-content" class="card" style="padding: 20px;"></div>
+    </div>
+
     <footer>
       <p>Price comparison (7d, 30d, 6m, 1y) and Company use market data (similar to Google Finance) for <strong>UI display only</strong>. Invested/Sold (month) are from order history; run the app daily to build month totals. CSV export happens only when you click Export.</p>
     </footer>
@@ -443,6 +475,16 @@
           updateUI(true);
           const data = await r.json();
           loadPortfolioSummaryWithData(data);
+          if (!window._tursoSyncIntervalStarted) {
+            window._tursoSyncIntervalStarted = true;
+            setInterval(async () => {
+              try {
+                const r = await fetch('/api/sync-turso', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
+                const d = await r.json().catch(() => ({}));
+                if (r.ok && d.synced && (d.dates || 0) > 0) console.debug('Turso auto-sync:', d.dates, 'dates');
+              } catch (_) {}
+            }, 30 * 60 * 1000);
+          }
           return;
         }
         const data = await r.json().catch(() => ({}));
@@ -476,6 +518,8 @@
         btnConnect.style.display = 'none';
         if (btnRefresh) btnRefresh.style.display = 'inline-flex';
         if (btnClearCache) btnClearCache.style.display = 'inline-flex';
+        if (document.getElementById('btn-sync-turso')) document.getElementById('btn-sync-turso').style.display = 'inline-flex';
+        if (document.getElementById('btn-validate-turso')) document.getElementById('btn-validate-turso').style.display = 'inline-flex';
         if (hint) hint.style.display = 'none';
         btnLogout.style.display = 'inline-flex';
         btnExport.style.display = 'inline-flex';
@@ -485,6 +529,8 @@
         btnConnect.style.display = 'inline-flex';
         if (btnRefresh) btnRefresh.style.display = 'none';
         if (btnClearCache) btnClearCache.style.display = 'none';
+        if (document.getElementById('btn-sync-turso')) document.getElementById('btn-sync-turso').style.display = 'none';
+        if (document.getElementById('btn-validate-turso')) document.getElementById('btn-validate-turso').style.display = 'none';
         if (hint) hint.style.display = hasApiKey ? 'none' : 'inline';
         btnLogout.style.display = 'none';
         btnExport.style.display = 'none';
@@ -609,6 +655,7 @@
       if (pageId === 'monthly') loadMonthlyPage();
       else if (pageId === 'db') loadDbPage();
       else if (pageId === 'by-date') loadByDatePage();
+      else if (pageId === 'checklist') loadChecklistPage();
     }
 
     async function loadPortfolioSummary(forceRefresh) {
@@ -661,7 +708,7 @@
           main.innerHTML = '<div class="card"><div class="empty-state"><p>No holdings found</p><small>Connect with Zerodha. Equity: delivery holdings. MF: Coin holdings.</small></div></div>';
           summaryEl.style.display = 'none';
           comparisonEl.style.display = 'none';
-          showPage('dashboard');
+          showPage(pageFromPathname(location.pathname));
           return;
         }
         const monthB = data.month_buy ?? 0;
@@ -853,7 +900,7 @@
           }
           loadCompanyNames();
         }
-        showPage('dashboard');
+        showPage(pageFromPathname(location.pathname));
       } catch (err) {
         main.innerHTML = '<div class="alert alert-error">' + err.message + '</div>';
         summaryEl.style.display = 'none';
@@ -1040,11 +1087,18 @@
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || 'Failed');
         const rows = d.rows || [];
-        el.innerHTML = '<p><strong>Values stored in portfolio.db (SQLite)</strong></p>' +
-          '<p>' + (d.stored_dates || rows.length) + ' date(s). <small class="text-muted">One row per day; each stock/MF stored separately.</small></p>' +
-          '<div class="table-wrap"><table style="font-size: 0.8rem;"><thead><tr><th>Date</th><th>Portfolio value</th><th>Cost</th><th>Buy</th><th>Sell</th><th>Month buy</th><th>Month sell</th><th>Holdings</th><th>MF value</th><th>Saved at</th></tr></thead><tbody>' +
-          rows.map(r => '<tr><td>' + r.date + '</td><td>' + fmt(r.portfolio_value) + '</td><td>' + fmt(r.portfolio_cost) + '</td><td>' + fmt(r.buy_amount) + '</td><td>' + fmt(r.sell_amount) + '</td><td>' + fmt(r.month_buy) + '</td><td>' + fmt(r.month_sell) + '</td><td>' + (r.num_holdings || 0) + '</td><td>' + fmt(r.mf_portfolio_value) + '</td><td>' + (r.created_at || '').replace('T', ' ') + '</td></tr>').join('') +
-          '</tbody></table></div>';
+        let tableHtml = '<p><strong>Values stored in portfolio.db (SQLite)</strong></p>';
+        if (rows.length === 0) {
+          tableHtml += '<div class="empty-state" style="padding: 24px; text-align: center;"><p class="text-muted">No rows yet. Tables exist (local + Turso if configured) but no portfolio snapshot has been saved.</p>' +
+            '<p style="margin-top: 12px;">1) Go to <strong>Dashboard</strong> and click <strong>Refresh data</strong> to fetch from Zerodha and save to local DB.<br>2) Then click <strong>Sync to Turso</strong> in the header to push that data to Turso (so both DBs have rows).</p>' +
+            '<p style="margin-top: 8px; font-size: 0.9rem;"><a href="/" class="nav-link">Open Dashboard →</a></p></div>';
+        } else {
+          tableHtml += '<p>' + (d.stored_dates || rows.length) + ' date(s). <small class="text-muted">One row per day; each stock/MF stored separately. To copy to Turso, click <strong>Sync to Turso</strong> in the header.</small></p>' +
+            '<div class="table-wrap"><table style="font-size: 0.8rem;"><thead><tr><th>Date</th><th>Portfolio value</th><th>Cost</th><th>Buy</th><th>Sell</th><th>Month buy</th><th>Month sell</th><th>Holdings</th><th>MF value</th><th>Saved at</th></tr></thead><tbody>' +
+            rows.map(r => '<tr><td>' + r.date + '</td><td>' + fmt(r.portfolio_value) + '</td><td>' + fmt(r.portfolio_cost) + '</td><td>' + fmt(r.buy_amount) + '</td><td>' + fmt(r.sell_amount) + '</td><td>' + fmt(r.month_buy) + '</td><td>' + fmt(r.month_sell) + '</td><td>' + (r.num_holdings || 0) + '</td><td>' + fmt(r.mf_portfolio_value) + '</td><td>' + (r.created_at || '').replace('T', ' ') + '</td></tr>').join('') +
+            '</tbody></table></div>';
+        }
+        el.innerHTML = tableHtml;
       } catch (e) {
         el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
       }
@@ -1111,12 +1165,342 @@
 
     document.getElementById('by-date-select')?.addEventListener('change', () => loadByDatePage());
 
+    const CHECKLIST_MONTHLY = [
+      { title: '💳 Financial', items: ['Credit Card Bill Payment', 'SIP / Mutual Fund Investment', 'EMI (Home Loan / Car Loan / Personal Loan)', 'Rent Payment', 'Electricity Bill', 'Water Bill', 'Gas Cylinder Booking', 'Internet / Broadband Bill', 'Mobile Recharge / Postpaid Bill', 'OTT Subscriptions', 'Insurance Premium (if monthly mode)', 'NPS Contribution', 'RD / Savings Contribution', 'Salary Credit Verification', 'Expense Tracking Review', 'Emergency Fund Contribution'] },
+      { title: '👨‍👩‍👧 Family & Kids', items: ['School Fees (if monthly)', 'Tuition Fees', 'Bus Fees', 'Child Pocket Money', 'Vaccination Follow-up (if scheduled monthly)', 'Growth/Health Check Reminder (infant cases)'] },
+      { title: '🏠 Home', items: ['House Maintenance Charges', 'Maid Salary', 'Security Charges', 'Garbage Charges', 'Grocery Budget Planning', 'LPG Check', 'Drinking Water Can Renewal'] },
+      { title: '🏥 Health', items: ['Medicine Refill', 'Vitamin Supplements', 'Blood Pressure / Sugar Check (if required)', 'Gym / Fitness Subscription', 'Mental Health Check-in'] }
+    ];
+    const CHECKLIST_YEARLY = [
+      { title: '💰 Financial', items: ['Income Tax Filing', 'Advance Tax Payment', 'Investment Proof Submission', 'Form 26AS / AIS Verification', 'Rebalance Portfolio', 'Review Insurance Coverage', 'Term Insurance Renewal', 'Health Insurance Renewal', 'Vehicle Insurance Renewal', 'LIC Premium (if yearly)', 'PPF Contribution Planning', 'Tax Saving Investment Planning'] },
+      { title: '🏠 Property', items: ['Property Tax Payment', 'Water Tax', 'Home Insurance Renewal', 'Society AGM Participation', 'Home Deep Cleaning'] },
+      { title: '🚗 Vehicle', items: ['Vehicle Service', 'Pollution Certificate (PUC)', 'Road Tax (if applicable)', 'FASTag Recharge Check', 'Car Insurance Renewal'] },
+      { title: '👶 Kids', items: ['School Annual Fees', 'School Admission Renewal', 'Book & Uniform Purchase', 'Vaccination Booster', 'Annual Health Checkup', 'Eye Test', 'Dental Checkup'] },
+      { title: '🏥 Health (Adults)', items: ['Full Body Health Checkup', 'Dental Cleaning', 'Eye Checkup', 'Vitamin Test', 'Master Health Screening', 'Vaccination (Flu / COVID Booster)'] },
+      { title: '🏦 Government / Legal', items: ['Aadhaar Update (if required)', 'PAN Linking Check', 'Passport Renewal', 'Voter ID Update', 'Nominee Verification', 'Will Review'] }
+    ];
+    const CHECKLIST_QUARTERLY = [
+      { title: '📊 Quarterly reminders', items: ['Portfolio Review', 'Net Worth Calculation', 'Credit Score Check', 'Bank Statement Review', 'Expense Analysis', 'Gold Valuation Review'] }
+    ];
+
+    function checklistStorageKey(period) {
+      const now = new Date();
+      if (period === 'month') return 'checklist_month_' + now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+      if (period === 'year') return 'checklist_year_' + now.getFullYear();
+      if (period === 'quarter') {
+        const q = Math.floor(now.getMonth() / 3) + 1;
+        return 'checklist_quarter_' + now.getFullYear() + '-Q' + q;
+      }
+      return '';
+    }
+
+    function checklistPeriodSuffix(period) {
+      const now = new Date();
+      if (period === 'month') return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+      if (period === 'year') return String(now.getFullYear());
+      if (period === 'quarter') {
+        const q = Math.floor(now.getMonth() / 3) + 1;
+        return now.getFullYear() + '-Q' + q;
+      }
+      return '';
+    }
+
+    function checklistGetState(period) {
+      if (window.__checklistData && window.__checklistData[period]) return window.__checklistData[period].state || {};
+      try {
+        const k = checklistStorageKey(period);
+        const raw = localStorage.getItem(k);
+        return raw ? JSON.parse(raw) : {};
+      } catch (_) { return {}; }
+    }
+
+    function checklistSetState(period, state) {
+      if (window.__checklistData && window.__checklistData[period]) {
+        window.__checklistData[period].state = state;
+        saveChecklistToServer(period);
+        return;
+      }
+      try { localStorage.setItem(checklistStorageKey(period), JSON.stringify(state)); } catch (_) {}
+      saveChecklistToServerWithPayload(period, checklistPeriodSuffix(period), state, getChecklistCustom(period), getChecklistArchived(period));
+    }
+
+    function getChecklistCustom(period) {
+      if (window.__checklistData && window.__checklistData[period]) return window.__checklistData[period].custom || [];
+      try {
+        const k = 'checklist_custom_' + period + '_' + checklistPeriodSuffix(period);
+        const raw = localStorage.getItem(k);
+        return raw ? JSON.parse(raw) : [];
+      } catch (_) { return []; }
+    }
+
+    function setChecklistCustom(period, arr) {
+      if (window.__checklistData && window.__checklistData[period]) {
+        window.__checklistData[period].custom = arr;
+        saveChecklistToServer(period);
+        return;
+      }
+      try { localStorage.setItem('checklist_custom_' + period + '_' + checklistPeriodSuffix(period), JSON.stringify(arr)); } catch (_) {}
+      saveChecklistToServerWithPayload(period, checklistPeriodSuffix(period), checklistGetState(period), arr, getChecklistArchived(period));
+    }
+
+    function getChecklistArchived(period) {
+      if (window.__checklistData && window.__checklistData[period]) return window.__checklistData[period].archived || [];
+      try {
+        const k = 'checklist_archived_' + period + '_' + checklistPeriodSuffix(period);
+        const raw = localStorage.getItem(k);
+        return raw ? JSON.parse(raw) : [];
+      } catch (_) { return []; }
+    }
+
+    function setChecklistArchived(period, arr) {
+      if (window.__checklistData && window.__checklistData[period]) {
+        window.__checklistData[period].archived = arr;
+        saveChecklistToServer(period);
+        return;
+      }
+      try { localStorage.setItem('checklist_archived_' + period + '_' + checklistPeriodSuffix(period), JSON.stringify(arr)); } catch (_) {}
+      saveChecklistToServerWithPayload(period, checklistPeriodSuffix(period), checklistGetState(period), getChecklistCustom(period), arr);
+    }
+
+    function saveChecklistToServer(period) {
+      if (!window.__checklistData || !window.__checklistData[period]) return;
+      const d = window.__checklistData[period];
+      saveChecklistToServerWithPayload(period, d.key, d.state || {}, d.custom || [], d.archived || []);
+    }
+
+    function saveChecklistToServerWithPayload(period, periodKey, state, custom, archived) {
+      fetch('/api/checklist', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period_type: period, period_key: periodKey, state: state || {}, custom: custom || [], archived: archived || [] })
+      }).catch(function() {});
+    }
+
+    function getChecklistFromLocalStorage(period) {
+      try {
+        const suffix = checklistPeriodSuffix(period);
+        const stateRaw = localStorage.getItem(checklistStorageKey(period));
+        const customRaw = localStorage.getItem('checklist_custom_' + period + '_' + suffix);
+        const archivedRaw = localStorage.getItem('checklist_archived_' + period + '_' + suffix);
+        return {
+          state: stateRaw ? JSON.parse(stateRaw) : {},
+          custom: customRaw ? JSON.parse(customRaw) : [],
+          archived: archivedRaw ? JSON.parse(archivedRaw) : []
+        };
+      } catch (_) { return { state: {}, custom: [], archived: [] }; }
+    }
+
+    function renderChecklistSection(period, sectionKey, title, items, state, archivedSet) {
+      let html = '<div class="checklist-section"><h4>' + title + '</h4><ul class="checklist-list">';
+      items.forEach((label, i) => {
+        const id = period + '_' + sectionKey + '_' + i;
+        if (archivedSet.has(id)) return;
+        const checked = state[id];
+        const esc = label.replace(/</g, '&lt;');
+        html += '<li class="checklist-item' + (checked ? ' done' : '') + '"><input type="checkbox" id="' + id + '" data-period="' + period + '" data-id="' + id + '" ' + (checked ? ' checked' : '') + '><label for="' + id + '">' + esc + '</label><span class="checklist-item-actions"><button type="button" class="btn-link archive-btn" data-period="' + period + '" data-id="' + id + '" data-label="' + esc.replace(/"/g, '&quot;') + '" title="Archive">Archive</button></span></li>';
+      });
+      html += '</ul></div>';
+      return html;
+    }
+
+    function renderChecklistCustomSection(period, state, archivedSet) {
+      const custom = getChecklistCustom(period);
+      let html = '<div class="checklist-section"><h4>➕ Custom</h4><ul class="checklist-list">';
+      custom.forEach((label, i) => {
+        const id = period + '_custom_' + i;
+        if (archivedSet.has(id)) return;
+        const checked = state[id];
+        const esc = label.replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        html += '<li class="checklist-item' + (checked ? ' done' : '') + '"><input type="checkbox" id="' + id + '" data-period="' + period + '" data-id="' + id + '" ' + (checked ? ' checked' : '') + '><label for="' + id + '">' + label.replace(/</g, '&lt;') + '</label><span class="checklist-item-actions"><button type="button" class="btn-link archive-btn" data-period="' + period + '" data-id="' + id + '" data-label="' + esc + '" title="Archive">Archive</button></span></li>';
+      });
+      html += '</ul><div class="checklist-add-form"><input type="text" class="checklist-add-input" data-period="' + period + '" placeholder="Add your own item…" maxlength="200"><button type="button" class="btn btn-secondary btn-add" data-period="' + period + '">Add</button></div></div>';
+      return html;
+    }
+
+    function renderChecklistArchived(period, archivedList) {
+      if (archivedList.length === 0) return '';
+      let html = '<div class="checklist-archived"><details><summary>📦 Archived (' + archivedList.length + ')</summary><ul class="checklist-list">';
+      archivedList.forEach(function(entry) {
+        const lbl = entry.label || entry.id;
+        const esc = lbl.replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        html += '<li class="checklist-item"><span>' + lbl.replace(/</g, '&lt;') + '</span><span class="checklist-item-actions"><button type="button" class="btn-link restore-btn" data-period="' + period + '" data-id="' + entry.id + '" data-label="' + esc + '">Restore</button></span></li>';
+      });
+      html += '</ul></details></div>';
+      return html;
+    }
+
+    async function loadChecklistPage() {
+      const el = document.getElementById('checklist-content');
+      if (!el) return;
+      el.innerHTML = '<p class="text-muted">Loading checklist…</p>';
+      try {
+        const r = await fetch('/api/checklist', { credentials: 'same-origin', cache: 'no-store' });
+        if (r.ok) {
+          const data = await r.json();
+          window.__checklistData = data;
+          const monthKey = data.month && data.month.key ? data.month.key : (new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0'));
+          const yearKey = data.year && data.year.key ? data.year.key : String(new Date().getFullYear());
+          const q = Math.floor(new Date().getMonth() / 3) + 1;
+          const quarterKey = data.quarter && data.quarter.key ? data.quarter.key : (new Date().getFullYear() + '-Q' + q);
+          ['month', 'year', 'quarter'].forEach(function(period) {
+            const key = period === 'month' ? monthKey : (period === 'year' ? yearKey : quarterKey);
+            const empty = !window.__checklistData[period].state || Object.keys(window.__checklistData[period].state).length === 0;
+            if (empty && (!window.__checklistData[period].custom || window.__checklistData[period].custom.length === 0) && (!window.__checklistData[period].archived || window.__checklistData[period].archived.length === 0)) {
+              const local = getChecklistFromLocalStorage(period);
+              if ((local.state && Object.keys(local.state).length > 0) || (local.custom && local.custom.length > 0) || (local.archived && local.archived.length > 0)) {
+                window.__checklistData[period] = { key: key, state: local.state || {}, custom: local.custom || [], archived: local.archived || [] };
+                saveChecklistToServerWithPayload(period, key, window.__checklistData[period].state, window.__checklistData[period].custom, window.__checklistData[period].archived);
+              }
+            }
+          });
+        } else {
+          window.__checklistData = null;
+        }
+      } catch (_) {
+        window.__checklistData = null;
+      }
+      const now = new Date();
+      const monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+      const yearKey = String(now.getFullYear());
+      const q = Math.floor(now.getMonth() / 3) + 1;
+      const quarterKey = now.getFullYear() + ' Q' + q;
+      if (window.__checklistData && !window.__checklistData.month.key) {
+        window.__checklistData.month = { key: monthKey, state: {}, custom: [], archived: [] };
+      }
+      if (window.__checklistData && !window.__checklistData.year.key) {
+        window.__checklistData.year = { key: yearKey, state: {}, custom: [], archived: [] };
+      }
+      if (window.__checklistData && !window.__checklistData.quarter.key) {
+        window.__checklistData.quarter = { key: quarterKey, state: {}, custom: [], archived: [] };
+      }
+
+      const monthState = checklistGetState('month');
+      const yearState = checklistGetState('year');
+      const quarterState = checklistGetState('quarter');
+
+      const monthArchived = getChecklistArchived('month');
+      const yearArchived = getChecklistArchived('year');
+      const quarterArchived = getChecklistArchived('quarter');
+      const monthArchivedSet = new Set(monthArchived.map(function(e) { return e.id; }));
+      const yearArchivedSet = new Set(yearArchived.map(function(e) { return e.id; }));
+      const quarterArchivedSet = new Set(quarterArchived.map(function(e) { return e.id; }));
+
+      const hideDone = (function() { try { return localStorage.getItem('checklist-hide-done') === '1'; } catch (_) { return false; } })();
+      let html = '<div class="checklist-toolbar"><label><input type="checkbox" id="checklist-hide-done-checkbox"' + (hideDone ? ' checked' : '') + '> Hide completed items</label></div>';
+      html += '<p class="text-muted" style="margin-bottom: 20px;">Check off items as you complete them. Add your own items or archive ones you don’t need. <strong>Monthly</strong> checklist refreshes every month (new month = fresh list). <strong>Yearly</strong> checklist refreshes every 1 Jan (new year = fresh list). <strong>Quarterly</strong> refreshes each quarter.</p>';
+      html += '<div class="checklist-period"><h3>✅ 📅 Monthly Checklist <span class="checklist-badge">' + monthKey + '</span></h3>';
+      CHECKLIST_MONTHLY.forEach(function(sec, si) {
+        html += renderChecklistSection('month', 's' + si, sec.title, sec.items, monthState, monthArchivedSet);
+      });
+      html += renderChecklistCustomSection('month', monthState, monthArchivedSet);
+      html += renderChecklistArchived('month', monthArchived);
+      html += '</div>';
+      html += '<div class="checklist-period"><h3>✅ 📆 Yearly Checklist <span class="checklist-badge">' + yearKey + '</span></h3>';
+      CHECKLIST_YEARLY.forEach(function(sec, si) {
+        html += renderChecklistSection('year', 's' + si, sec.title, sec.items, yearState, yearArchivedSet);
+      });
+      html += renderChecklistCustomSection('year', yearState, yearArchivedSet);
+      html += renderChecklistArchived('year', yearArchived);
+      html += '</div>';
+      html += '<div class="checklist-period"><h3>✅ 📊 Quarterly Reminders <span class="checklist-badge">' + quarterKey + '</span></h3>';
+      CHECKLIST_QUARTERLY.forEach(function(sec, si) {
+        html += renderChecklistSection('quarter', 's' + si, sec.title, sec.items, quarterState, quarterArchivedSet);
+      });
+      html += renderChecklistCustomSection('quarter', quarterState, quarterArchivedSet);
+      html += renderChecklistArchived('quarter', quarterArchived);
+      html += '</div>';
+
+      el.innerHTML = html;
+      el.classList.toggle('checklist-hide-done', hideDone);
+
+      const hideDoneCb = document.getElementById('checklist-hide-done-checkbox');
+      if (hideDoneCb) {
+        hideDoneCb.addEventListener('change', function() {
+          el.classList.toggle('checklist-hide-done', this.checked);
+          try { localStorage.setItem('checklist-hide-done', this.checked ? '1' : '0'); } catch (_) {}
+        });
+      }
+
+      el.querySelectorAll('input[data-period][data-id]').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+          const period = this.dataset.period;
+          const id = this.dataset.id;
+          const state = checklistGetState(period);
+          state[id] = this.checked;
+          checklistSetState(period, state);
+          const li = this.closest('.checklist-item');
+          if (li) li.classList.toggle('done', this.checked);
+        });
+      });
+
+      el.querySelectorAll('.archive-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          const period = this.dataset.period;
+          const id = this.dataset.id;
+          const label = (this.dataset.label || '').replace(/&quot;/g, '"').replace(/&lt;/g, '<');
+          if (!id || !period) return;
+          const archived = getChecklistArchived(period);
+          archived.push({ id: id, label: label });
+          setChecklistArchived(period, archived);
+          loadChecklistPage();
+        });
+      });
+
+      el.querySelectorAll('.restore-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          const period = this.dataset.period;
+          const id = this.dataset.id;
+          const label = (this.dataset.label || '').replace(/&quot;/g, '"').replace(/&lt;/g, '<');
+          const archived = getChecklistArchived(period).filter(function(e) { return e.id !== id; });
+          setChecklistArchived(period, archived);
+          if (id && id.indexOf('_custom_') !== -1) {
+            const custom = getChecklistCustom(period);
+            custom.push(label);
+            setChecklistCustom(period, custom);
+          }
+          loadChecklistPage();
+        });
+      });
+
+      el.querySelectorAll('.btn-add').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          const period = this.dataset.period;
+          const wrap = this.closest('.checklist-section');
+          const input = wrap ? wrap.querySelector('.checklist-add-input') : null;
+          const text = input ? input.value.trim() : '';
+          if (!text) return;
+          const custom = getChecklistCustom(period);
+          custom.push(text);
+          setChecklistCustom(period, custom);
+          if (input) input.value = '';
+          loadChecklistPage();
+        });
+      });
+
+      el.querySelectorAll('.checklist-add-input').forEach(function(input) {
+        input.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            const period = this.dataset.period;
+            const text = this.value.trim();
+            if (!text) return;
+            const custom = getChecklistCustom(period);
+            custom.push(text);
+            setChecklistCustom(period, custom);
+            this.value = '';
+            loadChecklistPage();
+          }
+        });
+      });
+    }
+
     function pathForPage(pageId) { return pageId === 'dashboard' ? '/' : '/' + pageId; }
     function pageFromPathname(pathname) {
       const p = (pathname || '/').replace(/\/$/, '') || '/';
       if (p === '/') return 'dashboard';
       const page = p.slice(1);
-      return ['holdings', 'monthly', 'db', 'by-date'].includes(page) ? page : 'dashboard';
+      return ['holdings', 'monthly', 'db', 'by-date', 'checklist'].includes(page) ? page : 'dashboard';
     }
     document.querySelectorAll('#main-nav a').forEach(a => {
       a.addEventListener('click', (e) => {
@@ -1135,6 +1519,38 @@
 
     document.getElementById('btn-refresh')?.addEventListener('click', () => {
       loadPortfolioSummary(true);
+    });
+
+    document.getElementById('btn-validate-turso')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-validate-turso');
+      if (btn) btn.disabled = true;
+      try {
+        const r = await fetch('/api/turso-validate', { credentials: 'same-origin', cache: 'no-store' });
+        const d = await r.json().catch(() => ({}));
+        if (d.ok) showAlert('Turso: ' + (d.message || 'Connected successfully'), 'info');
+        else showAlert('Turso: ' + (d.message || 'Validation failed'), 'error');
+      } catch (e) {
+        showAlert('Validate failed: ' + e.message, 'error');
+      }
+      if (btn) btn.disabled = false;
+    });
+
+    document.getElementById('btn-sync-turso')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-sync-turso');
+      if (btn) btn.disabled = true;
+      try {
+        const r = await fetch('/api/sync-turso', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.synced) {
+          let msg = 'Synced ' + (d.dates || 0) + ' date(s) to Turso.';
+          if ((d.checklist_rows || 0) > 0) msg += ' ' + d.checklist_rows + ' checklist row(s).';
+          showAlert(msg, 'info');
+        }
+        else showAlert(d.error || 'Sync failed', 'error');
+      } catch (e) {
+        showAlert('Sync failed: ' + e.message, 'error');
+      }
+      if (btn) btn.disabled = false;
     });
 
     document.getElementById('btn-clear-cache')?.addEventListener('click', () => {

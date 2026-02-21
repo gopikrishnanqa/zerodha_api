@@ -1,7 +1,8 @@
 """
 SQLite persistence: portfolio_daily (one row per day for aggregates) and
 holdings_equity_daily / holdings_mf_daily (one row per stock/MF per day).
-DB file lives in data/ folder.
+DB file lives in data/ folder. When Turso is configured, all writes are
+dual-written to Turso so local and remote stay in sync.
 """
 import json
 import logging
@@ -12,6 +13,15 @@ from pathlib import Path
 from config import DB_PATH
 
 log = logging.getLogger(__name__)
+
+def _turso_sync():
+    """Lazy import to avoid loading config/requests when Turso not used."""
+    try:
+        from helper import turso_sync as ts
+        return ts
+    except Exception as e:
+        log.debug("Turso sync not available: %s", e)
+        return None
 
 
 def get_db():
@@ -64,6 +74,18 @@ def init_db():
             PRIMARY KEY (date, tradingsymbol, folio)
         )
     """)
+    # Checklist: one row per period (month/year/quarter) and key (e.g. 2026-02, 2026, 2026-Q1)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS checklist (
+            period_type TEXT NOT NULL,
+            period_key TEXT NOT NULL,
+            state_json TEXT NOT NULL DEFAULT '{}',
+            custom_json TEXT NOT NULL DEFAULT '[]',
+            archived_json TEXT NOT NULL DEFAULT '[]',
+            updated_at TEXT,
+            PRIMARY KEY (period_type, period_key)
+        )
+    """)
     # Add mf_portfolio_cost if missing (for category-wise invested amount)
     try:
         conn.execute("ALTER TABLE portfolio_daily ADD COLUMN mf_portfolio_cost REAL DEFAULT 0")
@@ -83,6 +105,74 @@ def init_db():
     except sqlite3.OperationalError:
         pass
     conn.close()
+    ts = _turso_sync()
+    if ts:
+        try:
+            ts.init_turso_tables()
+        except Exception as e:
+            log.warning("Turso init_tables failed: %s", e)
+
+
+def get_checklist(period_type: str, period_key: str) -> dict | None:
+    """Return { state: dict, custom: list, archived: list } for the period, or None if not found."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT state_json, custom_json, archived_json FROM checklist WHERE period_type = ? AND period_key = ?",
+        (period_type, period_key),
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    try:
+        return {
+            "state": json.loads(row["state_json"] or "{}"),
+            "custom": json.loads(row["custom_json"] or "[]"),
+            "archived": json.loads(row["archived_json"] or "[]"),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def set_checklist(period_type: str, period_key: str, state: dict, custom: list, archived: list) -> None:
+    """Save checklist data for the period. state is id->bool, custom is list of strings, archived is list of {id, label}."""
+    conn = get_db()
+    now = datetime.now().isoformat()
+    conn.execute(
+        """INSERT OR REPLACE INTO checklist (period_type, period_key, state_json, custom_json, archived_json, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (period_type, period_key, json.dumps(state), json.dumps(custom), json.dumps(archived), now),
+    )
+    conn.commit()
+    conn.close()
+    log.info("Checklist saved: %s %s", period_type, period_key)
+    ts = _turso_sync()
+    if ts:
+        try:
+            ts.set_checklist_turso(period_type, period_key, state, custom, archived)
+        except Exception as e:
+            log.warning("Turso set_checklist failed: %s", e)
+
+
+def get_all_checklist_rows() -> list:
+    """Return all checklist rows for sync: list of (period_type, period_key, state, custom, archived)."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT period_type, period_key, state_json, custom_json, archived_json FROM checklist"
+    ).fetchall()
+    conn.close()
+    out = []
+    for r in rows:
+        try:
+            out.append((
+                r["period_type"],
+                r["period_key"],
+                json.loads(r["state_json"] or "{}"),
+                json.loads(r["custom_json"] or "[]"),
+                json.loads(r["archived_json"] or "[]"),
+            ))
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def _migrate_holdings_from_json(conn, d: str, holdings_json: str, mf_holdings_json: str) -> None:
@@ -261,6 +351,17 @@ def save_portfolio_day(
     conn.commit()
     conn.close()
     log.info("Saved portfolio for %s: %d equity, %d MF rows", date_str, len(holdings), len(mf_holdings))
+    ts = _turso_sync()
+    if ts:
+        try:
+            ts.save_portfolio_day_turso(
+                d, portfolio_value, portfolio_cost, buy_amount, sell_amount,
+                month_buy, month_sell, holdings, month_per_stock,
+                mf_holdings=mf_holdings, mf_portfolio_value=mf_portfolio_value,
+                mf_portfolio_cost=mf_portfolio_cost, price_changes=price_changes,
+            )
+        except Exception as e:
+            log.warning("Turso save_portfolio_day failed: %s", e)
 
 
 def update_cached_mf_only(d: date, mf_holdings: list, mf_portfolio_value: float) -> None:
@@ -284,6 +385,12 @@ def update_cached_mf_only(d: date, mf_holdings: list, mf_portfolio_value: float)
         log.warning("Failed to update cache with MF: %s", e)
     finally:
         conn.close()
+    ts = _turso_sync()
+    if ts:
+        try:
+            ts.update_cached_mf_only_turso(d, mf_holdings, mf_portfolio_value)
+        except Exception as e:
+            log.warning("Turso update_cached_mf_only failed: %s", e)
 
 
 def clear_portfolio_cache() -> int:
@@ -297,6 +404,12 @@ def clear_portfolio_cache() -> int:
     conn.commit()
     conn.close()
     log.info("Cleared portfolio cache: %d day(s), all equity and MF rows", n)
+    ts = _turso_sync()
+    if ts:
+        try:
+            ts.clear_portfolio_cache_turso()
+        except Exception as e:
+            log.warning("Turso clear_portfolio_cache failed: %s", e)
     return n
 
 

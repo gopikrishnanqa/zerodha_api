@@ -16,6 +16,10 @@ DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "portfolio.db"
 ACTIVITY_FILE = DATA_DIR / "monthly_activity.json"
 
+# Turso (optional): sync portfolio data to remote. Set both for dual-write.
+TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL", "").strip()  # e.g. libsql://db-name.org.turso.io
+TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "").strip()
+
 # Zerodha / Flask
 API_KEY = os.environ.get("KITE_API_KEY", "")
 API_SECRET = os.environ.get("KITE_API_SECRET", "")
