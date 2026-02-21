@@ -2,6 +2,7 @@
 __pycache__/
 monthly_activity.json
 portfolio.db
+data/
 *.pyc
 .venv/
 venv/
