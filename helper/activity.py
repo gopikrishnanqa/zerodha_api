@@ -27,3 +27,8 @@ def save_activity(data: dict) -> None:
             json.dump(data, f, indent=2)
     except Exception:
         pass
+
+
+def clear_activity() -> None:
+    """Clear all persisted order activity (monthly_activity.json -> {})."""
+    save_activity({})

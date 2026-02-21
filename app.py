@@ -9,7 +9,7 @@ import io
 import json
 import logging
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from functools import wraps
 
@@ -114,57 +114,25 @@ def logout():
 @require_auth
 def portfolio_summary():
     """
-    Return portfolio summary and holdings. Uses SQLite cache:
-    - If today's row exists and refresh=0: return from DB (no equity API call).
+    Return portfolio summary and holdings. Uses SQLite cache when available:
+    - If today's row exists and refresh=0: return from DB (no Zerodha API call).
     - If cache has no MF data: fetch MF only, update cache, return.
     - If today's row missing or refresh=1: fetch from Kite, save to DB, return.
     """
-    db.init_db()
-    today = date.today()
-    today_str = today.isoformat()
-    refresh = request.args.get("refresh", "").lower() in ("1", "true", "yes")
-    payload = None
-    from_cache = False
+    try:
+        db.init_db()
+        today = date.today()
+        today_str = today.isoformat()
+        refresh = request.args.get("refresh", "").lower() in ("1", "true", "yes")
+        payload = None
 
-    if refresh:
-        log.info("Portfolio: refresh=1 -> fetching live from Zerodha (equity + MF)")
-        data, err = kite_api.fetch_and_compute_portfolio(session)
-        if err:
-            return jsonify({"error": err}), 400
-        db.save_portfolio_day(
-            today,
-            data["portfolio_value"],
-            data["portfolio_cost"],
-            data["buy_amount"],
-            data["sell_amount"],
-            data["month_buy"],
-            data["month_sell"],
-            data["holdings"],
-            data["month_per_stock"],
-            mf_holdings=data.get("mf_holdings", []),
-            mf_portfolio_value=data.get("mf_portfolio_value", 0),
-        )
-        payload = portfolio_helper.build_portfolio_payload({
-            "date": today_str,
-            "portfolio_value": data["portfolio_value"],
-            "portfolio_cost": data["portfolio_cost"],
-            "buy_amount": data["buy_amount"],
-            "sell_amount": data["sell_amount"],
-            "month_buy": data["month_buy"],
-            "month_sell": data["month_sell"],
-            "holdings": data["holdings"],
-            "month_per_stock": data["month_per_stock"],
-            "mf_holdings": data.get("mf_holdings", []),
-            "mf_portfolio_value": data.get("mf_portfolio_value", 0),
-            "month_name": data["month_name"],
-        }, False, None)
-    else:
-        cached = db.get_cached_day(today)
-        if cached is None:
-            log.info("Portfolio: no cache for %s -> fetching live from Zerodha", today_str)
+        if refresh:
+            log.info("Portfolio: refresh=1 -> fetching live from Zerodha (equity + MF)")
             data, err = kite_api.fetch_and_compute_portfolio(session)
             if err:
                 return jsonify({"error": err}), 400
+            price_changes = kite_api.fetch_price_changes_for_holdings(data["holdings"])
+            data["price_changes"] = price_changes
             db.save_portfolio_day(
                 today,
                 data["portfolio_value"],
@@ -177,6 +145,8 @@ def portfolio_summary():
                 data["month_per_stock"],
                 mf_holdings=data.get("mf_holdings", []),
                 mf_portfolio_value=data.get("mf_portfolio_value", 0),
+                mf_portfolio_cost=data.get("mf_portfolio_cost", 0),
+                price_changes=price_changes,
             )
             payload = portfolio_helper.build_portfolio_payload({
                 "date": today_str,
@@ -190,48 +160,100 @@ def portfolio_summary():
                 "month_per_stock": data["month_per_stock"],
                 "mf_holdings": data.get("mf_holdings", []),
                 "mf_portfolio_value": data.get("mf_portfolio_value", 0),
+                "price_changes": price_changes,
                 "month_name": data["month_name"],
             }, False, None)
         else:
-            from_cache = True
-            payload = portfolio_helper.build_portfolio_payload({}, True, cached)
-            mf_in_cache = (payload.get("mf_holdings") or []) and float(payload.get("mf_portfolio_value") or 0) > 0
-            if not mf_in_cache:
-                log.info("Portfolio: serving from cache for %s but MF missing/empty -> fetching MF only", today_str)
-                mf_list, mf_err = kite_api.fetch_mf_holdings(session)
-                if mf_list:
-                    mf_val = 0.0
-                    for h in mf_list:
-                        try:
-                            mf_val += float(h.get("quantity") or 0) * float(h.get("last_price") or 0)
-                        except (TypeError, ValueError):
-                            pass
-                    mf_val = round(mf_val, 2)
-                    payload["mf_holdings"] = mf_list
-                    payload["mf_portfolio_value"] = mf_val
-                    db.update_cached_mf_only(today, mf_list, mf_val)
-                else:
-                    log.warning("Portfolio: MF backfill failed: %s", mf_err or "no data")
+            cached = db.get_cached_day(today)
+            if cached is None:
+                log.info("Portfolio: no cache for %s -> fetching live from Zerodha", today_str)
+                data, err = kite_api.fetch_and_compute_portfolio(session)
+                if err:
+                    return jsonify({"error": err}), 400
+                price_changes = kite_api.fetch_price_changes_for_holdings(data["holdings"])
+                data["price_changes"] = price_changes
+                db.save_portfolio_day(
+                    today,
+                    data["portfolio_value"],
+                    data["portfolio_cost"],
+                    data["buy_amount"],
+                    data["sell_amount"],
+                    data["month_buy"],
+                    data["month_sell"],
+                    data["holdings"],
+                    data["month_per_stock"],
+                    mf_holdings=data.get("mf_holdings", []),
+                    mf_portfolio_value=data.get("mf_portfolio_value", 0),
+                    mf_portfolio_cost=data.get("mf_portfolio_cost", 0),
+                    price_changes=price_changes,
+                )
+                payload = portfolio_helper.build_portfolio_payload({
+                    "date": today_str,
+                    "portfolio_value": data["portfolio_value"],
+                    "portfolio_cost": data["portfolio_cost"],
+                    "buy_amount": data["buy_amount"],
+                    "sell_amount": data["sell_amount"],
+                    "month_buy": data["month_buy"],
+                    "month_sell": data["month_sell"],
+                    "holdings": data["holdings"],
+                    "month_per_stock": data["month_per_stock"],
+                    "mf_holdings": data.get("mf_holdings", []),
+                    "mf_portfolio_value": data.get("mf_portfolio_value", 0),
+                    "price_changes": price_changes,
+                    "month_name": data["month_name"],
+                }, False, None)
             else:
-                log.info("Portfolio: serving from cache for %s (no Zerodha API call)", today_str)
+                payload = portfolio_helper.build_portfolio_payload({}, True, cached)
+                mf_in_cache = (payload.get("mf_holdings") or []) and float(payload.get("mf_portfolio_value") or 0) > 0
+                if not mf_in_cache:
+                    log.info("Portfolio: serving from cache for %s but MF missing/empty -> fetching MF only", today_str)
+                    mf_list, mf_err = kite_api.fetch_mf_holdings(session)
+                    if mf_list:
+                        mf_val = 0.0
+                        for h in mf_list:
+                            try:
+                                mf_val += float(h.get("quantity") or 0) * float(h.get("last_price") or 0)
+                            except (TypeError, ValueError):
+                                pass
+                        mf_val = round(mf_val, 2)
+                        payload["mf_holdings"] = mf_list
+                        payload["mf_portfolio_value"] = mf_val
+                        db.update_cached_mf_only(today, mf_list, mf_val)
+                    else:
+                        log.warning("Portfolio: MF backfill failed: %s", mf_err or "no data")
+                else:
+                    log.info("Portfolio: serving from cache for %s (no Zerodha API call)", today_str)
 
-    prev_date = db.get_previous_date(today)
-    comparison = None
-    if prev_date:
-        prev_row = db.get_cached_day(prev_date)
-        if prev_row:
-            comparison = {
-                "previous_date": prev_date.isoformat(),
-                "invested_diff": round(payload["portfolio_cost"] - float(prev_row["portfolio_cost"]), 2),
-                "buy_diff": round(payload["buy_amount"] - float(prev_row["buy_amount"]), 2),
-                "sell_diff": round(payload["sell_amount"] - float(prev_row["sell_amount"]), 2),
-                "portfolio_value_diff": round(payload["portfolio_value"] - float(prev_row["portfolio_value"]), 2),
-            }
-    payload["comparison"] = comparison
+        prev_date = db.get_previous_date(today)
+        comparison = None
+        if prev_date:
+            prev_row = db.get_cached_day(prev_date)
+            if prev_row:
+                comparison = {
+                    "previous_date": prev_date.isoformat(),
+                    "invested_diff": round(payload["portfolio_cost"] - float(prev_row["portfolio_cost"]), 2),
+                    "buy_diff": round(payload["buy_amount"] - float(prev_row["buy_amount"]), 2),
+                    "sell_diff": round(payload["sell_amount"] - float(prev_row["sell_amount"]), 2),
+                    "portfolio_value_diff": round(payload["portfolio_value"] - float(prev_row["portfolio_value"]), 2),
+                }
+        payload["comparison"] = comparison
 
-    resp = jsonify(payload)
-    resp.headers["X-Data-Source"] = "cache" if payload.get("fromCache") else "live"
-    return resp
+        resp = jsonify(payload)
+        resp.headers["X-Data-Source"] = "cache" if payload.get("fromCache") else "live"
+        return resp
+    except Exception as e:
+        log.exception("portfolio_summary failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/cache/clear", methods=["POST"])
+@require_auth
+def clear_cache():
+    """Clear DB cache only (portfolio_daily table). Does not clear order-activity file."""
+    db.init_db()
+    n = db.clear_portfolio_cache()
+    log.info("Cache cleared: %d portfolio row(s) deleted from DB", n)
+    return jsonify({"ok": True, "portfolio_rows_deleted": n})
 
 
 @app.route("/api/cache-status")
@@ -252,9 +274,91 @@ def cache_status():
             "month_sell": r["month_sell"],
             "num_holdings": r["num_holdings"],
             "mf_portfolio_value": r["mf_portfolio_value"],
+            "mf_portfolio_cost": float(r.get("mf_portfolio_cost") or 0),
             "created_at": r["created_at"],
         })
     return jsonify({"stored_dates": len(out), "rows": out})
+
+
+@app.route("/api/dates")
+@require_auth
+def api_dates():
+    """Return list of dates we have portfolio data for (for By Date page dropdown)."""
+    db.init_db()
+    dates = db.get_dates_list(365)
+    return jsonify({"dates": dates})
+
+
+@app.route("/api/holdings-by-date")
+@require_auth
+def holdings_by_date():
+    """Return equity and MF holdings for a given date from DB. Query param: date=YYYY-MM-DD."""
+    db.init_db()
+    date_str = request.args.get("date")
+    if not date_str:
+        return jsonify({"error": "Missing date=YYYY-MM-DD"}), 400
+    try:
+        d = date.fromisoformat(date_str)
+    except ValueError:
+        return jsonify({"error": "Invalid date format"}), 400
+    out = db.get_holdings_for_date(d)
+    if out is None:
+        return jsonify({"error": "No data for this date"}), 404
+    return jsonify(out)
+
+
+@app.route("/api/summary-by-date")
+@require_auth
+def summary_by_date():
+    """Return all stored dates with stocks value, MF value, month_buy, month_sell (for Monthly Summary page)."""
+    db.init_db()
+    rows = db.get_cache_status_rows(365)
+    out = []
+    for r in rows:
+        out.append({
+            "date": r["date"],
+            "portfolio_value": float(r["portfolio_value"] or 0),
+            "portfolio_cost": float(r["portfolio_cost"] or 0),
+            "month_buy": float(r["month_buy"] or 0),
+            "month_sell": float(r["month_sell"] or 0),
+            "num_holdings": int(r["num_holdings"] or 0),
+            "mf_portfolio_value": float(r["mf_portfolio_value"] or 0),
+            "mf_portfolio_cost": float(r.get("mf_portfolio_cost") or 0),
+            "created_at": r["created_at"],
+        })
+    return jsonify({"rows": out})
+
+
+@app.route("/api/nifty50-closes")
+@require_auth
+def nifty50_closes():
+    """Return Nifty 50 (^NSEI) close price for given dates. Query param: dates=YYYY-MM-DD,YYYY-MM-DD."""
+    import yfinance as yf
+    dates_str = request.args.get("dates", "")
+    if not dates_str:
+        return jsonify({"error": "Missing dates=YYYY-MM-DD,YYYY-MM-DD"}), 400
+    try:
+        want = [date.fromisoformat(s.strip()) for s in dates_str.split(",") if s.strip()]
+    except ValueError:
+        return jsonify({"error": "Invalid date in dates"}), 400
+    if not want:
+        return jsonify({"closes": {}})
+    min_d, max_d = min(want), max(want)
+    ticker = yf.Ticker("^NSEI")
+    hist = ticker.history(start=min_d, end=max_d + timedelta(days=1), auto_adjust=True)
+    closes = {}
+    if hist.empty:
+        return jsonify({"closes": {}})
+    for d in want:
+        d_str = d.isoformat()
+        on_date = hist[hist.index.date == d]
+        if len(on_date):
+            closes[d_str] = round(float(on_date.iloc[0]["Close"]), 2)
+        else:
+            before = hist[hist.index.date <= d]
+            if len(before):
+                closes[d_str] = round(float(before.iloc[-1]["Close"]), 2)
+    return jsonify({"closes": closes})
 
 
 @app.route("/api/holdings")
@@ -289,6 +393,29 @@ def orders_summary():
         "month": {"bought": round(month_buy, 2), "sold": round(month_sell, 2)},
         "month_per_stock": {k: {"bought": round(v["bought"], 2), "sold": round(v["sold"], 2)} for k, v in month_per_stock.items()},
         "month_name": now.strftime("%B %Y"),
+    })
+
+
+@app.route("/api/historical-value-by-month")
+@require_auth
+def historical_value_by_month():
+    """
+    Fetch portfolio value at the 1st of each month (Jan 1 2025, Feb 1 2025, ... Jan 1 2026)
+    using Kite historical API. Uses current holdings and quantities; value = sum(qty * historical_close).
+    Query params: from_year, from_month, to_year, to_month (defaults: 2025-01 to 2026-01).
+    """
+    from_year = int(request.args.get("from_year", 2025))
+    from_month = int(request.args.get("from_month", 1))
+    to_year = int(request.args.get("to_year", 2026))
+    to_month = int(request.args.get("to_month", 1))
+    rows, err = kite_api.fetch_portfolio_value_at_month_dates(
+        session, from_year=from_year, from_month=from_month, to_year=to_year, to_month=to_month
+    )
+    if err:
+        return jsonify({"error": err}), 400
+    return jsonify({
+        "note": "Value = current holdings valued at historical close on 1st of each month (equity only).",
+        "rows": rows,
     })
 
 

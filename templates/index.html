@@ -248,6 +248,29 @@
       font-size: 0.8rem;
       color: var(--text-muted);
     }
+    .nav {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 12px;
+    }
+    .nav a {
+      padding: 8px 14px;
+      border-radius: 6px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    .nav a:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+    .nav a.active { color: var(--accent); background: rgba(59, 130, 246, 0.15); }
+    .page { display: none; }
+    .page.active { display: block; }
+    .text-muted { color: var(--text-muted); }
+    a.nav-link { color: var(--accent); text-decoration: none; }
+    a.nav-link:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -258,21 +281,53 @@
         <span id="status-badge" class="status-badge status-disconnected">Not connected</span>
         <a href="/api/login" id="btn-connect" class="btn btn-primary" style="display:none;">Connect with Zerodha</a>
         <span id="connect-hint" style="display:none; font-size: 0.85rem; color: var(--text-muted);">Set KITE_API_KEY in .env to enable</span>
-        <button id="btn-refresh" class="btn btn-secondary" style="display:none;" title="Force fetch fresh data and update today's record">Refresh data</button>
+        <button id="btn-refresh" class="btn btn-secondary" style="display:none;" title="Fetch fresh data from Zerodha">Refresh data</button>
+        <button id="btn-clear-cache" class="btn btn-secondary" style="display:none;">Clear cache</button>
         <button id="btn-logout" class="btn btn-secondary" style="display:none;">Logout</button>
         <button id="btn-export" class="btn btn-success" style="display:none;" disabled>Export CSV</button>
       </div>
     </header>
 
     <div id="alerts"></div>
-    <div id="cache-indicator" class="cache-indicator" style="display:none;"></div>
-    <div id="db-status-wrap" style="display:none; margin-bottom: 16px;">
-      <button type="button" id="btn-show-db" class="btn btn-secondary" style="font-size: 0.85rem;">View what’s stored in DB</button>
-      <div id="db-status" class="card" style="margin-top: 12px; padding: 16px; display:none;"></div>
+    <nav class="nav" id="main-nav" style="display:none;">
+      <a href="#dashboard" data-page="dashboard">Dashboard</a>
+      <a href="#holdings" data-page="holdings">Stocks &amp; MF</a>
+      <a href="#monthly" data-page="monthly">Monthly Summary</a>
+      <a href="#db" data-page="db">DB View</a>
+      <a href="#by-date" data-page="by-date">By Date</a>
+    </nav>
+
+    <div id="page-dashboard" class="page">
+      <div id="cache-indicator" class="cache-indicator" style="display:none;"></div>
+      <div id="historical-wrap" style="display:none; margin-bottom: 16px;">
+        <button type="button" id="btn-historical" class="btn btn-secondary" style="font-size: 0.85rem;">Load historical value (Jan 1 2025 → Jan 1 2026)</button>
+        <p class="text-muted" style="font-size: 0.8rem; margin-top: 6px;">Uses Kite historical API: current holdings valued at close on 1st of each month (equity only).</p>
+        <div id="historical-status" class="card" style="margin-top: 12px; padding: 16px; display:none;"></div>
+      </div>
+      <div id="summary-cards" class="summary-cards" style="display:none;"></div>
+      <div id="comparison-cards" class="comparison-cards" style="display:none;"></div>
+      <p class="text-muted" style="margin-top: 16px;"><a href="#holdings" class="nav-link">View Stocks &amp; Mutual Funds →</a></p>
     </div>
-    <div id="summary-cards" class="summary-cards" style="display:none;"></div>
-    <div id="comparison-cards" class="comparison-cards" style="display:none;"></div>
-    <div id="main-content"></div>
+
+    <div id="page-holdings" class="page">
+      <div id="holdings-content"></div>
+    </div>
+
+    <div id="page-monthly" class="page">
+      <div id="monthly-content" class="card" style="padding: 16px;"></div>
+    </div>
+
+    <div id="page-db" class="page">
+      <div id="db-content" class="card" style="padding: 16px;"></div>
+    </div>
+
+    <div id="page-by-date" class="page">
+      <div style="margin-bottom: 16px;">
+        <label for="by-date-select" class="text-muted">Select date: </label>
+        <select id="by-date-select" style="padding: 8px 12px; border-radius: 6px; background: var(--card); border: 1px solid var(--border); color: var(--text); font-size: 0.9rem;"></select>
+      </div>
+      <div id="by-date-content"></div>
+    </div>
 
     <footer>
       <p>Price comparison (7d, 30d, 6m, 1y) and Company use market data (similar to Google Finance) for <strong>UI display only</strong>. Invested/Sold (month) are from order history; run the app daily to build month totals. CSV export happens only when you click Export.</p>
@@ -292,16 +347,26 @@
 
     async function checkAuth() {
       try {
-        const r = await fetch('/api/portfolio-summary', { credentials: 'same-origin' });
+        const r = await fetch('/api/portfolio-summary', { credentials: 'same-origin', cache: 'no-store' });
         if (r.ok) {
           updateUI(true);
           const data = await r.json();
           loadPortfolioSummaryWithData(data);
           return;
         }
-        updateUI(false);
+        const data = await r.json().catch(() => ({}));
+        const msg = data.error || ('HTTP ' + r.status);
+        updateUI(r.status === 401 ? false : true);
+        document.getElementById('main-nav').style.display = 'flex';
+        showPage('dashboard');
+        document.getElementById('summary-cards').innerHTML = '<div class="alert alert-error">' + msg + '</div>';
+        document.getElementById('summary-cards').style.display = 'block';
       } catch (e) {
         updateUI(false);
+        showPage('dashboard');
+        document.getElementById('main-nav').style.display = 'none';
+        document.getElementById('summary-cards').innerHTML = '<div class="alert alert-error">' + e.message + '</div>';
+        document.getElementById('summary-cards').style.display = 'block';
       }
     }
 
@@ -309,6 +374,7 @@
       const badge = document.getElementById('status-badge');
       const btnConnect = document.getElementById('btn-connect');
       const btnRefresh = document.getElementById('btn-refresh');
+      const btnClearCache = document.getElementById('btn-clear-cache');
       const btnLogout = document.getElementById('btn-logout');
       const btnExport = document.getElementById('btn-export');
 
@@ -318,6 +384,7 @@
         badge.className = 'status-badge status-connected';
         btnConnect.style.display = 'none';
         if (btnRefresh) btnRefresh.style.display = 'inline-flex';
+        if (btnClearCache) btnClearCache.style.display = 'inline-flex';
         if (hint) hint.style.display = 'none';
         btnLogout.style.display = 'inline-flex';
         btnExport.style.display = 'inline-flex';
@@ -326,6 +393,7 @@
         badge.className = 'status-badge status-disconnected';
         btnConnect.style.display = 'inline-flex';
         if (btnRefresh) btnRefresh.style.display = 'none';
+        if (btnClearCache) btnClearCache.style.display = 'none';
         if (hint) hint.style.display = hasApiKey ? 'none' : 'inline';
         btnLogout.style.display = 'none';
         btnExport.style.display = 'none';
@@ -436,25 +504,37 @@
       });
     }
 
+    function showPage(pageId) {
+      document.querySelectorAll('.page').forEach(p => { p.classList.remove('active'); });
+      document.querySelectorAll('#main-nav a').forEach(a => { a.classList.toggle('active', a.dataset.page === pageId); });
+      const el = document.getElementById('page-' + pageId);
+      if (el) el.classList.add('active');
+      if (pageId === 'monthly') loadMonthlyPage();
+      else if (pageId === 'db') loadDbPage();
+      else if (pageId === 'by-date') loadByDatePage();
+    }
+
     async function loadPortfolioSummary(forceRefresh) {
-      const main = document.getElementById('main-content');
-      main.innerHTML = '<div class="card"><div class="empty-state"><p>Loading portfolio…</p></div></div>';
+      const holder = document.getElementById('holdings-content');
+      holder.innerHTML = '<div class="card"><div class="empty-state"><p>Loading portfolio…</p></div></div>';
       try {
         const url = '/api/portfolio-summary' + (forceRefresh ? '?refresh=1' : '');
-        const res = await fetch(url, { credentials: 'same-origin' });
-        const data = await res.json();
+        const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Failed to load portfolio');
         loadPortfolioSummaryWithData(data);
       } catch (err) {
-        document.getElementById('main-content').innerHTML = `<div class="alert alert-error">${err.message}</div>`;
-        document.getElementById('summary-cards').style.display = 'none';
+        document.getElementById('page-dashboard').classList.add('active');
+        document.getElementById('holdings-content').innerHTML = '';
+        document.getElementById('summary-cards').innerHTML = '<div class="alert alert-error">' + (err.message || String(err)) + '</div>';
+        document.getElementById('summary-cards').style.display = 'block';
         document.getElementById('cache-indicator').style.display = 'none';
         document.getElementById('comparison-cards').style.display = 'none';
       }
     }
 
     function loadPortfolioSummaryWithData(data) {
-      const main = document.getElementById('main-content');
+      const main = document.getElementById('holdings-content');
       const summaryEl = document.getElementById('summary-cards');
       const cacheEl = document.getElementById('cache-indicator');
       const comparisonEl = document.getElementById('comparison-cards');
@@ -475,7 +555,8 @@
           ? `Data from cache for ${data.date}. Stocks + MF (${mfHoldings.length} fund(s)). Click "Refresh data" to fetch fresh from Zerodha.`
           : `Live data fetched for ${data.date}.`;
         cacheEl.style.display = 'block';
-        document.getElementById('db-status-wrap').style.display = 'block';
+        document.getElementById('main-nav').style.display = 'flex';
+        document.getElementById('historical-wrap').style.display = 'block';
         const mfValue = data.mf_portfolio_value ?? mfHoldings.reduce((s, h) => s + (parseFloat(h.quantity) || 0) * (parseFloat(h.last_price) || 0), 0);
         const totalVal = (data.portfolio_value ?? holdings.reduce((s, h) => s + (h.quantity || 0) * (parseFloat(h.last_price) || 0), 0)) + mfValue;
 
@@ -483,6 +564,7 @@
           main.innerHTML = '<div class="card"><div class="empty-state"><p>No holdings found</p><small>Connect with Zerodha. Equity: delivery holdings. MF: Coin holdings.</small></div></div>';
           summaryEl.style.display = 'none';
           comparisonEl.style.display = 'none';
+          showPage('dashboard');
           return;
         }
         const monthB = data.month_buy ?? 0;
@@ -590,11 +672,16 @@
           renderHoldingsTable(holdingsData);
           makeSortable();
           document.querySelector('#holdings-table th[data-sort="value"]')?.classList.add('sort-asc');
-          loadPriceComparisons();
+          if (data.price_changes && Object.keys(data.price_changes).length > 0) {
+            fillPriceCellsFromStored(data.price_changes);
+          } else {
+            loadPriceComparisons();
+          }
           loadCompanyNames();
         }
+        showPage('dashboard');
       } catch (err) {
-        main.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+        main.innerHTML = '<div class="alert alert-error">' + err.message + '</div>';
         summaryEl.style.display = 'none';
         cacheEl.style.display = 'none';
         comparisonEl.style.display = 'none';
@@ -613,6 +700,27 @@
           els.forEach(el => { el.innerHTML = d.company ? `<span title="${d.company}">${d.company.length > 25 ? d.company.slice(0, 22) + '…' : d.company}</span>` : '<span class="pct-na">–</span>'; });
         } catch (e) {
           document.querySelectorAll(`.company-cell[data-symbol="${sym}"][data-exchange="${ex}"]`).forEach(el => { el.innerHTML = '<span class="pct-na">–</span>'; });
+        }
+      }
+    }
+
+    function fillPriceCellsFromStored(priceChanges) {
+      for (const key of Object.keys(priceChanges)) {
+        const parts = key.split('|');
+        const sym = parts[0] || '';
+        const ex = parts[1] || 'NSE';
+        const pc = priceChanges[key] || {};
+        for (const period of ['7d', '30d', '6m', '1y']) {
+          const v = pc[period];
+          const sel = `.pct-cell[data-symbol="${sym.replace(/"/g, '\\"')}"][data-exchange="${(ex || 'NSE').replace(/"/g, '\\"')}"][data-period="${period}"]`;
+          document.querySelectorAll(sel).forEach(el => {
+            if (v == null) el.innerHTML = '<span class="pct-na">–</span>';
+            else {
+              const cls = v > 0 ? 'pct-up' : v < 0 ? 'pct-down' : 'pct-na';
+              const sign = v > 0 ? '+' : '';
+              el.innerHTML = `<span class="${cls}">${sign}${v}%</span>`;
+            }
+          });
         }
       }
     }
@@ -647,8 +755,178 @@
       }
     }
 
+    async function loadMonthlyPage() {
+      const el = document.getElementById('monthly-content');
+      el.innerHTML = '<p>Loading…</p>';
+      try {
+        const [r1, r2] = await Promise.all([
+          fetch('/api/summary-by-date', { credentials: 'same-origin', cache: 'no-store' }),
+          fetch('/api/cache-status', { credentials: 'same-origin', cache: 'no-store' })
+        ]);
+        const d1 = await r1.json().catch(() => ({}));
+        const d2 = await r2.json().catch(() => ({}));
+        const rows = d1.rows || d2.rows || [];
+        if (rows.length === 0) {
+          el.innerHTML = '<p class="text-muted">No stored dates. Refresh portfolio on Dashboard to save data.</p>';
+          return;
+        }
+        const dates = rows.map(r => r.date);
+        let niftyCloses = {};
+        try {
+          const rN = await fetch('/api/nifty50-closes?dates=' + dates.join(','), { credentials: 'same-origin' });
+          const dN = await rN.json();
+          niftyCloses = dN.closes || {};
+        } catch (e) { /* ignore */ }
+        const firstNifty = niftyCloses[dates[0]];
+        el.innerHTML = '<h3 style="margin:0 0 12px;">Summary by stored date (Stocks vs MF vs Nifty 50)</h3>' +
+          '<p class="text-muted" style="font-size:0.85rem; margin-bottom: 16px;">Values as of each fetch date. Month buy/sell are cumulative for that month. <strong>Change vs prev</strong> = change in Total from the previous stored date (market move + net investment/withdrawal).</p>' +
+          '<div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr>' +
+          '<th>Date</th><th>Stocks Value</th><th>MF Value</th><th>Total</th><th>Change vs prev</th><th>Month Invested</th><th>Month Sold</th><th>Nifty 50</th><th>vs Nifty</th>' +
+          '</tr></thead><tbody>' +
+          rows.map((r, i) => {
+            const total = (r.portfolio_value || 0) + (r.mf_portfolio_value || 0);
+            const prevTotal = i < rows.length - 1 ? (rows[i + 1].portfolio_value || 0) + (rows[i + 1].mf_portfolio_value || 0) : null;
+            const change = prevTotal != null ? total - prevTotal : null;
+            let changeCell = '–';
+            if (change != null) {
+              const pct = prevTotal > 0 ? ((change / prevTotal) * 100).toFixed(2) : '';
+              changeCell = '<span class="' + (change >= 0 ? 'pct-up' : 'pct-down') + '">' + (change >= 0 ? '+' : '') + fmt(change) + (pct ? ' (' + (change >= 0 ? '+' : '') + pct + '%)' : '') + '</span>';
+            }
+            const nifty = niftyCloses[r.date];
+            let vsNifty = '–';
+            if (nifty != null && firstNifty != null && firstNifty > 0) {
+              const pct = (((nifty - firstNifty) / firstNifty) * 100).toFixed(2);
+              vsNifty = pct >= 0 ? '+' + pct + '%' : pct + '%';
+            }
+            return '<tr><td>' + r.date + '</td><td>' + fmt(r.portfolio_value) + '</td><td>' + fmt(r.mf_portfolio_value) + '</td><td><strong>' + fmt(total) + '</strong></td><td>' + changeCell + '</td><td class="pct-up">' + fmt(r.month_buy) + '</td><td class="pct-down">' + fmt(r.month_sell) + '</td><td>' + (nifty != null ? nifty.toLocaleString() : '–') + '</td><td>' + vsNifty + '</td></tr>';
+          }).join('') + '</tbody></table></div>';
+      } catch (e) {
+        el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+      }
+    }
+
+    async function loadDbPage() {
+      const el = document.getElementById('db-content');
+      el.innerHTML = '<p>Loading…</p>';
+      try {
+        const r = await fetch('/api/cache-status', { credentials: 'same-origin', cache: 'no-store' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Failed');
+        const rows = d.rows || [];
+        el.innerHTML = '<p><strong>Values stored in portfolio.db (SQLite)</strong></p>' +
+          '<p>' + (d.stored_dates || rows.length) + ' date(s). <small class="text-muted">One row per day; each stock/MF stored separately.</small></p>' +
+          '<div class="table-wrap"><table style="font-size: 0.8rem;"><thead><tr><th>Date</th><th>Portfolio value</th><th>Cost</th><th>Buy</th><th>Sell</th><th>Month buy</th><th>Month sell</th><th>Holdings</th><th>MF value</th><th>Saved at</th></tr></thead><tbody>' +
+          rows.map(r => '<tr><td>' + r.date + '</td><td>' + fmt(r.portfolio_value) + '</td><td>' + fmt(r.portfolio_cost) + '</td><td>' + fmt(r.buy_amount) + '</td><td>' + fmt(r.sell_amount) + '</td><td>' + fmt(r.month_buy) + '</td><td>' + fmt(r.month_sell) + '</td><td>' + (r.num_holdings || 0) + '</td><td>' + fmt(r.mf_portfolio_value) + '</td><td>' + (r.created_at || '').replace('T', ' ') + '</td></tr>').join('') +
+          '</tbody></table></div>';
+      } catch (e) {
+        el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+      }
+    }
+
+    async function loadByDatePage() {
+      const select = document.getElementById('by-date-select');
+      const content = document.getElementById('by-date-content');
+      if (select.options.length === 0) {
+        select.innerHTML = '<option value="">Loading…</option>';
+        try {
+          const r = await fetch('/api/dates', { credentials: 'same-origin', cache: 'no-store' });
+          const d = await r.json();
+          const dates = d.dates || [];
+          select.innerHTML = dates.length ? dates.map(d => '<option value="' + d + '">' + d + '</option>').join('') : '<option value="">No dates</option>';
+        } catch (e) {
+          select.innerHTML = '<option value="">Error</option>';
+        }
+      }
+      const dateVal = select.value;
+      if (!dateVal) {
+        content.innerHTML = '<p class="text-muted">Select a date to see holdings (quantity & value) for that day.</p>';
+        return;
+      }
+      content.innerHTML = '<p>Loading…</p>';
+      try {
+        const r = await fetch('/api/holdings-by-date?date=' + encodeURIComponent(dateVal), { credentials: 'same-origin', cache: 'no-store' });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Failed');
+        const equity = data.equity || [];
+        const mf = data.mf || [];
+        let html = '<p class="text-muted" style="margin-bottom:12px;">Stocks value: ' + fmt(data.portfolio_value) + ' &nbsp;|&nbsp; MF value: ' + fmt(data.mf_portfolio_value) + '</p>';
+        if (equity.length > 0) {
+          html += '<h4 class="section-title">Stocks</h4><div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Exchange</th><th>Qty</th><th>Avg</th><th>LTP</th><th>Value</th></tr></thead><tbody>';
+          equity.forEach(h => {
+            const qty = h.quantity || 0;
+            const avg = parseFloat(h.average_price) || 0;
+            const last = parseFloat(h.last_price) || 0;
+            const val = qty * last;
+            html += '<tr><td><strong>' + (h.tradingsymbol || '-') + '</strong></td><td>' + (h.exchange || '-') + '</td><td>' + qty + '</td><td>' + fmt(avg) + '</td><td>' + fmt(last) + '</td><td>' + fmt(val) + '</td></tr>';
+          });
+          html += '</tbody></table></div>';
+        }
+        if (mf.length > 0) {
+          html += '<h4 class="section-title" style="margin-top:20px;">Mutual Funds</h4><div class="table-wrap"><table><thead><tr><th>Fund</th><th>Folio</th><th>Units</th><th>Avg</th><th>LTP</th><th>Value</th></tr></thead><tbody>';
+          mf.forEach(h => {
+            const qty = parseFloat(h.quantity) || 0;
+            const last = parseFloat(h.last_price) || 0;
+            const val = qty * last;
+            html += '<tr><td><strong>' + (h.fund || h.tradingsymbol || '-').replace(/</g, '&lt;') + '</strong></td><td>' + (h.folio || '-') + '</td><td>' + qty.toFixed(4) + '</td><td>' + fmt(h.average_price) + '</td><td>' + fmt(last) + '</td><td>' + fmt(val) + '</td></tr>';
+          });
+          html += '</tbody></table></div>';
+        }
+        if (equity.length === 0 && mf.length === 0) html += '<p class="text-muted">No holdings for this date.</p>';
+        content.innerHTML = html;
+      } catch (e) {
+        content.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+      }
+    }
+
+    document.getElementById('by-date-select')?.addEventListener('change', () => loadByDatePage());
+
+    document.querySelectorAll('#main-nav a').forEach(a => {
+      a.addEventListener('click', (e) => { e.preventDefault(); showPage(a.dataset.page); });
+    });
+    window.addEventListener('hashchange', () => {
+      const page = (location.hash || '#dashboard').slice(1) || 'dashboard';
+      if (['dashboard', 'holdings', 'monthly', 'db', 'by-date'].includes(page)) showPage(page);
+    });
+    if (location.hash) window.dispatchEvent(new Event('hashchange'));
+    else showPage('dashboard');
+
     document.getElementById('btn-refresh')?.addEventListener('click', () => {
       loadPortfolioSummary(true);
+    });
+
+    document.getElementById('btn-clear-cache')?.addEventListener('click', async () => {
+      if (!confirm('Clear cache? This will clear stored portfolio data from the DB. The page will then reload with fresh data (browser cache bypassed).')) return;
+      try {
+        const r = await fetch('/api/cache/clear', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Failed to clear cache');
+        showAlert('Cache cleared. ' + (d.portfolio_rows_deleted || 0) + ' row(s) deleted from DB. Loading fresh data…', 'info');
+        await loadPortfolioSummary(true);
+      } catch (e) {
+        showAlert('Clear cache failed: ' + e.message, 'error');
+      }
+    });
+
+    document.getElementById('btn-historical')?.addEventListener('click', async () => {
+      const el = document.getElementById('historical-status');
+      el.style.display = 'block';
+      el.innerHTML = '<p>Loading… (fetching historical data from Kite for each holding, may take a minute)</p>';
+      try {
+        const r = await fetch('/api/historical-value-by-month?from_year=2025&from_month=1&to_year=2026&to_month=1', { credentials: 'same-origin', cache: 'no-store' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Failed to load historical value');
+        const rows = d.rows || [];
+        if (rows.length === 0) {
+          el.innerHTML = '<p>No data (no equity holdings or historical range returned nothing).</p>';
+          return;
+        }
+        el.innerHTML = '<p><strong>' + (d.note || '') + '</strong></p>' +
+          '<div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr><th>Date (1st of month)</th><th>No. of stocks</th><th>Total value (₹)</th></tr></thead><tbody>' +
+          rows.map(r => '<tr><td>' + r.date + '</td><td>' + (r.num_stocks || 0) + '</td><td>' + fmt(r.total_value) + '</td></tr>').join('') +
+          '</tbody></table></div>';
+      } catch (e) {
+        el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+      }
     });
 
     document.getElementById('btn-show-db')?.addEventListener('click', async () => {
@@ -660,7 +938,7 @@
         if (!r.ok) throw new Error(d.error || 'Failed');
         const rows = d.rows || [];
         el.innerHTML = '<p><strong>Values stored in portfolio.db (SQLite)</strong></p>' +
-          '<p>' + d.stored_dates + ' date(s) stored.</p>' +
+          '<p>' + d.stored_dates + ' date(s) summary. <small>Daily totals above; each stock and each MF is stored as one row per day (new stocks/funds get new rows when they appear).</small></p>' +
           '<div class="table-wrap"><table style="font-size: 0.8rem;"><thead><tr><th>Date</th><th>Portfolio value</th><th>Cost</th><th>Buy</th><th>Sell</th><th>Month buy</th><th>Month sell</th><th>Holdings</th><th>MF value</th><th>Saved at</th></tr></thead><tbody>' +
           rows.map(r => '<tr><td>' + r.date + '</td><td>' + fmt(r.portfolio_value) + '</td><td>' + fmt(r.portfolio_cost) + '</td><td>' + fmt(r.buy_amount) + '</td><td>' + fmt(r.sell_amount) + '</td><td>' + fmt(r.month_buy) + '</td><td>' + fmt(r.month_sell) + '</td><td>' + (r.num_holdings || 0) + '</td><td>' + fmt(r.mf_portfolio_value) + '</td><td>' + (r.created_at || '').replace('T', ' ') + '</td></tr>').join('') +
           '</tbody></table></div>';

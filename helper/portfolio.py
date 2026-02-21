@@ -12,6 +12,7 @@ def build_portfolio_payload(data: dict | None, from_cache: bool, cached: dict | 
         month_per_stock = json.loads(cached["month_per_stock_json"] or "{}")
         mf_holdings = json.loads(cached.get("mf_holdings_json") or "[]")
         mf_value = float(cached.get("mf_portfolio_value") or 0)
+        price_changes = json.loads(cached["price_changes_json"] or "{}") if cached.get("price_changes_json") else {}
         return {
             "fromCache": True,
             "date": cached["date"],
@@ -25,6 +26,7 @@ def build_portfolio_payload(data: dict | None, from_cache: bool, cached: dict | 
             "month_per_stock": month_per_stock,
             "mf_holdings": mf_holdings,
             "mf_portfolio_value": mf_value,
+            "price_changes": price_changes,
             "month_name": date.today().strftime("%B %Y"),
         }
     if not data:
@@ -42,5 +44,6 @@ def build_portfolio_payload(data: dict | None, from_cache: bool, cached: dict | 
         "month_per_stock": data["month_per_stock"],
         "mf_holdings": data.get("mf_holdings", []),
         "mf_portfolio_value": data.get("mf_portfolio_value", 0),
+        "price_changes": data.get("price_changes", {}),
         "month_name": data["month_name"],
     }

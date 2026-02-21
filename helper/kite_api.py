@@ -3,6 +3,7 @@ Zerodha Kite API and market data (yfinance) helpers.
 """
 from datetime import date, datetime, timedelta
 import logging
+import time
 
 import requests
 import yfinance as yf
@@ -11,6 +12,9 @@ from config import API_KEY, BASE_URL
 from helper.activity import load_activity, save_activity
 
 log = logging.getLogger(__name__)
+
+# Kite historical API: 3 requests per second
+HISTORICAL_REQUEST_DELAY = 0.35
 
 
 def zerodha_request(method: str, path: str, session, **kwargs):
@@ -51,6 +55,27 @@ def get_price_change_pct(symbol_yahoo: str, days_back: int) -> float | None:
         return round(((new_price - old_price) / old_price) * 100, 2)
     except Exception:
         return None
+
+
+def fetch_price_changes_for_holdings(holdings_list: list) -> dict:
+    """
+    For each equity holding, fetch 7d, 30d, 6m, 1y % price change from market data.
+    Returns dict keyed by 'tradingsymbol|exchange' with value {"7d": float|null, "30d": ..., "6m": ..., "1y": ...}.
+    """
+    out = {}
+    for h in holdings_list:
+        sym = h.get("tradingsymbol") or ""
+        ex = (h.get("exchange") or "NSE").strip()
+        key = f"{sym}|{ex}"
+        symbol_yahoo = symbol_for_yahoo(sym, ex)
+        out[key] = {
+            "7d": get_price_change_pct(symbol_yahoo, 7),
+            "30d": get_price_change_pct(symbol_yahoo, 30),
+            "6m": get_price_change_pct(symbol_yahoo, 182),
+            "1y": get_price_change_pct(symbol_yahoo, 365),
+        }
+    log.info("Fetched price changes for %d holdings (7d, 30d, 6m, 1y)", len(out))
+    return out
 
 
 def fetch_holdings(session) -> tuple[list, str | None]:
@@ -157,11 +182,14 @@ def fetch_and_compute_portfolio(session) -> tuple[dict | None, str | None]:
         portfolio_cost += qty * avg
 
     mf_portfolio_value = 0.0
+    mf_portfolio_cost = 0.0
     for h in mf_holdings_list:
         try:
             qty = float(h.get("quantity") or 0)
             last = float(h.get("last_price") or 0)
+            avg = float(h.get("average_price") or 0)
             mf_portfolio_value += qty * last
+            mf_portfolio_cost += qty * avg
         except (TypeError, ValueError):
             pass
     if mf_holdings_list:
@@ -173,6 +201,7 @@ def fetch_and_compute_portfolio(session) -> tuple[dict | None, str | None]:
         "portfolio_value": round(portfolio_value, 2),
         "portfolio_cost": round(portfolio_cost, 2),
         "mf_portfolio_value": round(mf_portfolio_value, 2),
+        "mf_portfolio_cost": round(mf_portfolio_cost, 2),
         "buy_amount": round(today_buy, 2),
         "sell_amount": round(today_sell, 2),
         "month_buy": round(month_buy, 2),
@@ -180,3 +209,111 @@ def fetch_and_compute_portfolio(session) -> tuple[dict | None, str | None]:
         "month_per_stock": {k: {"bought": round(v["bought"], 2), "sold": round(v["sold"], 2)} for k, v in month_per_stock.items()},
         "month_name": date.today().strftime("%B %Y"),
     }, None
+
+
+def fetch_historical_candles(session, instrument_token: int, from_date: date, to_date: date, interval: str = "day"):
+    """
+    Fetch historical OHLC candles from Kite.
+    GET /instruments/historical/{instrument_token}/{interval}?from=yyyy-mm-dd hh:mm:ss&to=...
+    Returns list of [timestamp, open, high, low, close, volume] or [] on error.
+    """
+    from_str = from_date.strftime("%Y-%m-%d 09:15:00")
+    to_str = to_date.strftime("%Y-%m-%d 15:30:00")
+    path = f"/instruments/historical/{instrument_token}/{interval}"
+    r = zerodha_request("GET", path, session=session, params={"from": from_str, "to": to_str})
+    data = r.json()
+    if data.get("status") != "success":
+        return []
+    return data.get("data", {}).get("candles") or []
+
+
+def _parse_candle_date(candle) -> date | None:
+    """From candle [timestamp, o, h, l, c, v] get the date. Timestamp is like 2017-12-15T09:15:00+0530."""
+    try:
+        ts = candle[0]
+        if isinstance(ts, str):
+            return date.fromisoformat(ts.split("T")[0])
+        return None
+    except (IndexError, ValueError, TypeError):
+        return None
+
+
+def fetch_portfolio_value_at_month_dates(
+    session,
+    from_year: int = 2025,
+    from_month: int = 1,
+    to_year: int = 2026,
+    to_month: int = 1,
+):
+    """
+    For current equity holdings, fetch historical close prices at the 1st of each month
+    (Jan 1 2025, Feb 1 2025, ... till Jan 1 2026) using Kite historical API.
+    Uses current holdings and quantities; value = sum(quantity * historical_close).
+    Returns list of { "date": "YYYY-MM-DD", "num_stocks": int, "total_value": float }.
+    """
+    holdings_list, err = fetch_holdings(session)
+    if err or not holdings_list:
+        return [], err or "No holdings"
+    # Build month dates: 1st of each month from (from_year, from_month) to (to_year, to_month) inclusive
+    month_dates = []
+    y, m = from_year, from_month
+    while (y, m) <= (to_year, to_month):
+        try:
+            month_dates.append(date(y, m, 1))
+        except ValueError:
+            pass
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+    if not month_dates:
+        return [], None
+    from_date = month_dates[0]
+    to_date = month_dates[-1] + timedelta(days=31)
+    # Per holding: fetch day candles for the range, build date -> close map
+    # Holdings must have instrument_token (equity holdings from Kite include it)
+    date_to_value = {d.isoformat(): 0.0 for d in month_dates}
+    num_stocks = len(holdings_list)
+    for h in holdings_list:
+        try:
+            token = int(h.get("instrument_token") or 0)
+        except (TypeError, ValueError):
+            log.warning("Skipping holding %s: no instrument_token", h.get("tradingsymbol"))
+            continue
+        if token <= 0:
+            continue
+        qty = int(h.get("quantity") or 0)
+        if qty <= 0:
+            continue
+        time.sleep(HISTORICAL_REQUEST_DELAY)
+        candles = fetch_historical_candles(session, token, from_date, to_date, "day")
+        if not candles:
+            continue
+        # Build map: calendar date (YYYY-MM-DD) -> close price (use latest candle on or before that date)
+        date_to_close = {}
+        for c in candles:
+            d = _parse_candle_date(c)
+            if d is None:
+                continue
+            close = c[4] if len(c) > 4 else 0
+            date_to_close[d.isoformat()] = float(close)
+        sorted_dates = sorted(date_to_close.keys())
+        for target in month_dates:
+            t_str = target.isoformat()
+            if t_str in date_to_close:
+                date_to_value[t_str] += qty * date_to_close[t_str]
+            else:
+                # Use previous trading day's close if that day had no candle
+                prev_close = None
+                for sd in reversed(sorted_dates):
+                    if sd <= t_str:
+                        prev_close = date_to_close[sd]
+                        break
+                if prev_close is not None:
+                    date_to_value[t_str] += qty * prev_close
+    out = [
+        {"date": d, "num_stocks": num_stocks, "total_value": round(date_to_value[d], 2)}
+        for d in sorted(date_to_value.keys())
+    ]
+    log.info("Historical portfolio value: %d month points (Jan 1 2025 .. Jan 1 2026)", len(out))
+    return out, None

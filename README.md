@@ -71,6 +71,27 @@ Export happens only when you click the Export button; data is not saved automati
 - **Refresh data:** Use the "Refresh data" button to force-fetch from Zerodha and overwrite today's record.
 - **Comparison:** When a previous stored date exists, the UI shows the change in invested amount, portfolio value, buy amount, and sell amount vs that date.
 
+## Importing historical holdings from Excel
+
+You can import older equity and mutual fund holdings from a Zerodha holdings Excel file (e.g. tax report export) into the SQLite cache so that date appears in the app’s “By Date” view.
+
+**Command:**
+
+```bash
+python scripts/import_holdings_excel.py "path\to\holdings-YYYY-MM-DD.xlsx" YYYY-MM-DD
+```
+
+**Example (Windows):**
+
+```bash
+python scripts/import_holdings_excel.py "H:\Gopi\NSE\holdings-DG0997-Aug-2025.xlsx" 2025-08-31
+```
+
+- **First argument:** Full path to the `.xlsx` file.
+- **Second argument:** Date for that snapshot in `YYYY-MM-DD` format.
+
+The script reads **Equity** and **Mutual Funds** sheets separately. That sheet should contain both equity and mutual fund rows with a row that has a “Symbol” header; the script detects the header row automatically. Rows are treated as mutual funds if a Segment/Type column is present and set to MF (or similar); otherwise they are treated as equity. It reads Symbol, Quantity Available, Average Price, and Previous Closing Price, plus Invested Value and Present Value from the summary, Data is written to `portfolio_daily`, `holdings_equity_daily`, and `holdings_mf_daily` for that date.
+
 ## Notes
 
 - Price comparison and Company use market data (yfinance) for NSE/BSE equities; MCX/other segments may show – if not available
