@@ -84,7 +84,16 @@ def fetch_holdings(session) -> tuple[list, str | None]:
     data = r.json()
     if data.get("status") != "success":
         return [], data.get("message", "Failed to fetch holdings")
-    return data.get("data", []), None
+    holdings = data.get("data", [])
+    # Use opening_quantity (total holding including T+1) when present, so quantity matches Zerodha UI
+    for h in holdings:
+        oq = h.get("opening_quantity")
+        if oq is not None:
+            try:
+                h["quantity"] = int(oq)
+            except (TypeError, ValueError):
+                h["quantity"] = oq
+    return holdings, None
 
 
 def fetch_mf_holdings(session) -> tuple[list, str | None]:

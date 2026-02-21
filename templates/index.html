@@ -166,6 +166,33 @@
       border-color: var(--text-muted);
     }
     .table-scroll-buttons .btn-scroll:disabled { opacity: 0.4; cursor: not-allowed; }
+    .holdings-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 20px;
+    }
+    .holdings-summary-block {
+      padding: 12px 16px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .holdings-summary-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .holdings-summary-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.9rem;
+      margin-top: 6px;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -196,6 +223,30 @@
       border-top: 2px solid var(--border);
       font-weight: 600;
     }
+    .compact-view-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem; user-select: none; }
+    .compact-view-toggle input { cursor: pointer; }
+    /* Compact view: hide non-essential columns in Stocks (Exchange, Company, Invested/Sold Month, 7d/30d/6m/1y) */
+    body.holdings-compact #holdings-table th:nth-child(2),
+    body.holdings-compact #holdings-table td:nth-child(2),
+    body.holdings-compact #holdings-table th:nth-child(10),
+    body.holdings-compact #holdings-table td:nth-child(10),
+    body.holdings-compact #holdings-table th:nth-child(11),
+    body.holdings-compact #holdings-table td:nth-child(11),
+    body.holdings-compact #holdings-table th:nth-child(12),
+    body.holdings-compact #holdings-table td:nth-child(12),
+    body.holdings-compact #holdings-table th:nth-child(13),
+    body.holdings-compact #holdings-table td:nth-child(13),
+    body.holdings-compact #holdings-table th:nth-child(14),
+    body.holdings-compact #holdings-table td:nth-child(14),
+    body.holdings-compact #holdings-table th:nth-child(15),
+    body.holdings-compact #holdings-table td:nth-child(15),
+    body.holdings-compact #holdings-table th:nth-child(16),
+    body.holdings-compact #holdings-table td:nth-child(16) { display: none; }
+    /* Compact view: hide P&L and P&L % in MF table */
+    body.holdings-compact #mf-holdings-table th:nth-child(8),
+    body.holdings-compact #mf-holdings-table td:nth-child(8),
+    body.holdings-compact #mf-holdings-table th:nth-child(9),
+    body.holdings-compact #mf-holdings-table td:nth-child(9) { display: none; }
     .pct-up { color: var(--up); }
     .pct-down { color: var(--down); }
     .pct-na { color: var(--text-muted); font-style: italic; }
@@ -489,13 +540,16 @@
       const sorted = sortHoldings(holdings);
       const tbody = document.getElementById('holdings-body');
       tbody.innerHTML = '';
+      let totalInvest = 0;
       let totalValue = 0;
       sorted.forEach(h => {
         const qty = h.quantity || 0;
         const avg = parseFloat(h.average_price) || 0;
         const last = parseFloat(h.last_price) || 0;
         const pnl = parseFloat(h.pnl) || 0;
+        const investVal = qty * avg;
         const val = qty * last;
+        totalInvest += investVal;
         totalValue += val;
         const pnlPct = avg && qty ? ((pnl / (avg * qty)) * 100).toFixed(2) : '-';
         const tr = document.createElement('tr');
@@ -506,6 +560,7 @@
           <td>${h.exchange || '-'}</td>
           <td>${qty}</td>
           <td>${fmt(avg)}</td>
+          <td>${fmt(investVal)}</td>
           <td>${fmt(last)}</td>
           <td><strong>${fmt(val)}</strong></td>
           <td class="${pnl >= 0 ? 'pct-up' : 'pct-down'}">${fmt(pnl)}</td>
@@ -523,7 +578,9 @@
       const trTotal = document.createElement('tr');
       trTotal.className = 'total-row';
       trTotal.innerHTML = `
-        <td colspan="5"><strong>Total</strong></td>
+        <td colspan="4"><strong>Total</strong></td>
+        <td><strong>${fmt(totalInvest)}</strong></td>
+        <td></td>
         <td><strong>${fmt(totalValue)}</strong></td>
         <td colspan="9"></td>
       `;
@@ -653,9 +710,49 @@
         }
 
         holdingsData = holdings;
-        let mainHtml = '';
+        const eqCost = data.portfolio_cost ?? holdings.reduce((s, h) => s + (h.quantity || 0) * (parseFloat(h.average_price) || 0), 0);
+        const eqValue = data.portfolio_value ?? holdings.reduce((s, h) => s + (h.quantity || 0) * (parseFloat(h.last_price) || 0), 0);
+        const mfCost = data.mf_portfolio_cost ?? mfHoldings.reduce((s, h) => s + (parseFloat(h.quantity) || 0) * (parseFloat(h.average_price) || 0), 0);
+        const eqPnl = eqValue - eqCost;
+        const mfPnl = mfValue - mfCost;
+        const totalCost = eqCost + mfCost;
+        const totalPnl = totalVal - totalCost;
+        const pnlPct = (cost, pnl) => (cost > 0 ? ((pnl / cost) * 100).toFixed(2) : '0.00');
+        const pnlCls = (pnl) => pnl >= 0 ? 'pct-up' : 'pct-down';
+        let mainHtml = `
+          <div class="card holdings-summary-top" style="margin-bottom: 20px;">
+            <h3 class="section-title" style="margin-bottom: 12px;">Summary</h3>
+            <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">Invested = what you paid (cost). Present value = current market value. The difference is <strong>Unrealized P&L</strong> (gain if positive, loss if negative).</p>
+            <div class="holdings-summary-grid">
+              <div class="holdings-summary-block">
+                <div class="holdings-summary-label">Equity (Stocks)</div>
+                <div class="holdings-summary-row"><span class="text-muted">Invested</span><strong>${fmt(eqCost)}</strong></div>
+                <div class="holdings-summary-row"><span class="text-muted">Present value</span><strong>${fmt(eqValue)}</strong></div>
+                <div class="holdings-summary-row"><span class="text-muted">Unrealized P&L</span><strong class="${pnlCls(eqPnl)}">${eqPnl >= 0 ? '+' : ''}${fmt(eqPnl)} (${eqPnl >= 0 ? '+' : ''}${pnlPct(eqCost, eqPnl)}%)</strong></div>
+              </div>
+              <div class="holdings-summary-block">
+                <div class="holdings-summary-label">Mutual Funds</div>
+                <div class="holdings-summary-row"><span class="text-muted">Invested</span><strong>${fmt(mfCost)}</strong></div>
+                <div class="holdings-summary-row"><span class="text-muted">Present value</span><strong>${fmt(mfValue)}</strong></div>
+                <div class="holdings-summary-row"><span class="text-muted">Unrealized P&L</span><strong class="${pnlCls(mfPnl)}">${mfPnl >= 0 ? '+' : ''}${fmt(mfPnl)} (${mfPnl >= 0 ? '+' : ''}${pnlPct(mfCost, mfPnl)}%)</strong></div>
+              </div>
+              <div class="holdings-summary-block">
+                <div class="holdings-summary-label">Total</div>
+                <div class="holdings-summary-row"><span class="text-muted">Invested</span><strong>${fmt(totalCost)}</strong></div>
+                <div class="holdings-summary-row"><span class="text-muted">Present value</span><strong>${fmt(totalVal)}</strong></div>
+                <div class="holdings-summary-row"><span class="text-muted">Unrealized P&L</span><strong class="${pnlCls(totalPnl)}">${totalPnl >= 0 ? '+' : ''}${fmt(totalPnl)} (${totalPnl >= 0 ? '+' : ''}${pnlPct(totalCost, totalPnl)}%)</strong></div>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom: 16px; padding: 12px 16px;">
+            <label class="compact-view-toggle">
+              <input type="checkbox" id="holdings-compact-checkbox" />
+              <span>Compact view (essential columns only)</span>
+            </label>
+          </div>
+        `;
         if (holdings.length > 0) {
-          mainHtml = `
+          mainHtml += `
             <div class="card"><h3 class="section-title">Stocks</h3>
             <div class="table-scroll-area"><div class="table-scroll-buttons"><button type="button" class="btn-scroll btn-scroll-left" aria-label="Scroll left">←</button><button type="button" class="btn-scroll btn-scroll-right" aria-label="Scroll right">→</button></div>
             <div class="table-wrap sticky-first" id="holdings-table-wrap"><table id="holdings-table">
@@ -664,8 +761,9 @@
                 <th data-sort="exchange">Exchange</th>
                 <th data-sort="qty">Qty</th>
                 <th>Avg Price</th>
+                <th>Invest value</th>
                 <th>LTP</th>
-                <th data-sort="value">Value</th>
+                <th data-sort="value">Current value</th>
                 <th data-sort="pnl">P&L</th>
                 <th data-sort="pnlPct">P&L %</th>
                 <th>Company (Market)</th>
@@ -678,11 +776,15 @@
           `;
         }
         if (mfHoldings.length > 0) {
+          let mfTotalInvest = 0, mfTotalValue = 0;
           const mfRows = mfHoldings.map(h => {
             const qty = parseFloat(h.quantity) || 0;
             const avg = parseFloat(h.average_price) || 0;
             const last = parseFloat(h.last_price) || 0;
+            const investVal = qty * avg;
             const val = qty * last;
+            mfTotalInvest += investVal;
+            mfTotalValue += val;
             const pnl = parseFloat(h.pnl) || 0;
             const cost = qty * avg;
             const pnlPct = cost ? ((pnl / cost) * 100).toFixed(2) : '-';
@@ -692,25 +794,36 @@
               <td>${qty.toFixed(4)}</td>
               <td>${fmt(avg)}</td>
               <td>${fmt(last)}</td>
+              <td>${fmt(investVal)}</td>
               <td><strong>${fmt(val)}</strong></td>
               <td class="${pnl >= 0 ? 'pct-up' : 'pct-down'}">${fmt(pnl)}</td>
               <td class="${pnl >= 0 ? 'pct-up' : 'pct-down'}">${pnlPct}%</td>
             </tr>`;
           }).join('');
-          const mfTotal = mfHoldings.reduce((s, h) => s + (parseFloat(h.quantity) || 0) * (parseFloat(h.last_price) || 0), 0);
           mainHtml += `
             <div class="card" style="margin-top: 24px;"><h3 class="section-title">Mutual Funds</h3>
             <div class="table-scroll-area"><div class="table-scroll-buttons"><button type="button" class="btn-scroll btn-scroll-left" aria-label="Scroll left">←</button><button type="button" class="btn-scroll btn-scroll-right" aria-label="Scroll right">→</button></div>
             <div class="table-wrap sticky-first" id="mf-holdings-table-wrap"><table id="mf-holdings-table" class="holdings-table">
               <thead><tr>
-                <th>Fund</th><th>Folio</th><th>Units</th><th>Avg NAV</th><th>LTP (NAV)</th><th>Value</th><th>P&L</th><th>P&L %</th>
+                <th>Fund</th><th>Folio</th><th>Units</th><th>Avg NAV</th><th>LTP (NAV)</th><th>Invest value</th><th>Current value</th><th>P&L</th><th>P&L %</th>
               </tr></thead>
               <tbody>${mfRows}</tbody>
-              <tr class="total-row"><td colspan="5"><strong>Total (MF)</strong></td><td><strong>${fmt(mfTotal)}</strong></td><td colspan="2"></td></tr>
+              <tr class="total-row"><td colspan="5"><strong>Total (MF)</strong></td><td><strong>${fmt(mfTotalInvest)}</strong></td><td><strong>${fmt(mfTotalValue)}</strong></td><td colspan="2"></td></tr>
             </table></div></div></div>
           `;
         }
         main.innerHTML = mainHtml || '<div class="card"><div class="empty-state"><p>No holdings</p></div></div>';
+        const compactCb = document.getElementById('holdings-compact-checkbox');
+        if (compactCb) {
+          try {
+            compactCb.checked = localStorage.getItem('holdings-compact') === '1';
+            document.body.classList.toggle('holdings-compact', compactCb.checked);
+          } catch (_) {}
+          compactCb.addEventListener('change', function() {
+            document.body.classList.toggle('holdings-compact', this.checked);
+            try { localStorage.setItem('holdings-compact', this.checked ? '1' : '0'); } catch (_) {}
+          });
+        }
         document.querySelectorAll('.table-scroll-area').forEach(area => {
           const wrap = area.querySelector('.table-wrap');
           const btnLeft = area.querySelector('.btn-scroll-left');
@@ -965,15 +1078,19 @@
         const mf = data.mf || [];
         let html = '<p class="text-muted" style="margin-bottom:12px;">Stocks value: ' + fmt(data.portfolio_value) + ' &nbsp;|&nbsp; MF value: ' + fmt(data.mf_portfolio_value) + '</p>';
         if (equity.length > 0) {
-          html += '<h4 class="section-title">Stocks</h4><div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Exchange</th><th>Qty</th><th>Avg</th><th>LTP</th><th>Value</th></tr></thead><tbody>';
+          let eqInvest = 0, eqVal = 0;
+          html += '<h4 class="section-title">Stocks</h4><div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Exchange</th><th>Qty</th><th>Avg</th><th>Invest value</th><th>LTP</th><th>Current value</th></tr></thead><tbody>';
           equity.forEach(h => {
             const qty = h.quantity || 0;
             const avg = parseFloat(h.average_price) || 0;
             const last = parseFloat(h.last_price) || 0;
+            const investVal = qty * avg;
             const val = qty * last;
-            html += '<tr><td><strong>' + (h.tradingsymbol || '-') + '</strong></td><td>' + (h.exchange || '-') + '</td><td>' + qty + '</td><td>' + fmt(avg) + '</td><td>' + fmt(last) + '</td><td>' + fmt(val) + '</td></tr>';
+            eqInvest += investVal;
+            eqVal += val;
+            html += '<tr><td><strong>' + (h.tradingsymbol || '-') + '</strong></td><td>' + (h.exchange || '-') + '</td><td>' + qty + '</td><td>' + fmt(avg) + '</td><td>' + fmt(investVal) + '</td><td>' + fmt(last) + '</td><td>' + fmt(val) + '</td></tr>';
           });
-          html += '</tbody></table></div>';
+          html += '<tr class="total-row"><td colspan="4"><strong>Total</strong></td><td><strong>' + fmt(eqInvest) + '</strong></td><td></td><td><strong>' + fmt(eqVal) + '</strong></td></tr></tbody></table></div>';
         }
         if (mf.length > 0) {
           html += '<h4 class="section-title" style="margin-top:20px;">Mutual Funds</h4><div class="table-wrap"><table><thead><tr><th>Fund</th><th>Folio</th><th>Units</th><th>Avg</th><th>LTP</th><th>Value</th></tr></thead><tbody>';
