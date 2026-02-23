@@ -60,6 +60,7 @@ def _migrate_data_to_data_dir():
 @app.route("/")
 @app.route("/holdings")
 @app.route("/monthly")
+@app.route("/weekly")
 @app.route("/db")
 @app.route("/by-date")
 @app.route("/checklist")
@@ -208,7 +209,10 @@ def portfolio_summary():
                     "month_name": data["month_name"],
                 }, False, None)
             else:
-                payload = portfolio_helper.build_portfolio_payload({}, True, cached)
+                # Value as of last day of previous month (e.g. 2026-01-31) for comparison
+                last_day_prev = today.replace(day=1) - timedelta(days=1)
+                cached_first_prev = db.get_cached_day_on_or_before(last_day_prev)
+                payload = portfolio_helper.build_portfolio_payload({}, True, cached, cached_first_prev)
                 mf_in_cache = (payload.get("mf_holdings") or []) and float(payload.get("mf_portfolio_value") or 0) > 0
                 if not mf_in_cache:
                     log.info("Portfolio: serving from cache for %s but MF missing/empty -> fetching MF only", today_str)
@@ -242,6 +246,29 @@ def portfolio_summary():
                     "portfolio_value_diff": round(payload["portfolio_value"] - float(prev_row["portfolio_value"]), 2),
                 }
         payload["comparison"] = comparison
+        # Value as of last day of previous month (for live we add from DB if not already in payload)
+        if not payload.get("last_month_value_date"):
+            last_day_prev = today.replace(day=1) - timedelta(days=1)
+            cached_first_prev = db.get_cached_day_on_or_before(last_day_prev)
+            if cached_first_prev:
+                pv = float(cached_first_prev.get("portfolio_value") or 0)
+                pc = float(cached_first_prev.get("portfolio_cost") or 0)
+                mfv = float(cached_first_prev.get("mf_portfolio_value") or 0)
+                mfc = float(cached_first_prev.get("mf_portfolio_cost") or 0)
+                payload["last_month_value_date"] = cached_first_prev.get("date")
+                payload["last_month_portfolio_value"] = pv + mfv
+                payload["last_month_portfolio_cost"] = pc + mfc
+        # Last day of previous year (for YTD column)
+        last_day_prev_year = date(today.year - 1, 12, 31)
+        cached_prev_year = db.get_cached_day_on_or_before(last_day_prev_year)
+        if cached_prev_year:
+            pv = float(cached_prev_year.get("portfolio_value") or 0)
+            pc = float(cached_prev_year.get("portfolio_cost") or 0)
+            mfv = float(cached_prev_year.get("mf_portfolio_value") or 0)
+            mfc = float(cached_prev_year.get("mf_portfolio_cost") or 0)
+            payload["last_year_value_date"] = cached_prev_year.get("date")
+            payload["last_year_portfolio_value"] = pv + mfv
+            payload["last_year_portfolio_cost"] = pc + mfc
 
         resp = jsonify(payload)
         resp.headers["X-Data-Source"] = "cache" if payload.get("fromCache") else "live"
@@ -434,9 +461,9 @@ def holdings_by_date():
 @app.route("/api/summary-by-date")
 @require_auth
 def summary_by_date():
-    """Return all stored dates with stocks value, MF value, month_buy, month_sell (for Monthly Summary page)."""
+    """Return only the latest record for each month (for Monthly Summary page)."""
     db.init_db()
-    rows = db.get_cache_status_rows(365)
+    rows = db.get_monthly_summary_rows()
     out = []
     for r in rows:
         out.append({
@@ -451,6 +478,32 @@ def summary_by_date():
             "created_at": r["created_at"],
         })
     return jsonify({"rows": out})
+
+
+@app.route("/api/weekly-summary")
+@require_auth
+def weekly_summary():
+    """Return all snapshots for a given month (one per week). Query param: month=YYYY-MM."""
+    db.init_db()
+    month = request.args.get("month")
+    if not month:
+        now = date.today()
+        month = now.strftime("%Y-%m")
+    rows = db.get_weekly_summary_rows_for_month(month)
+    out = []
+    for r in rows:
+        out.append({
+            "date": r["date"],
+            "portfolio_value": float(r["portfolio_value"] or 0),
+            "portfolio_cost": float(r["portfolio_cost"] or 0),
+            "month_buy": float(r["month_buy"] or 0),
+            "month_sell": float(r["month_sell"] or 0),
+            "num_holdings": int(r["num_holdings"] or 0),
+            "mf_portfolio_value": float(r["mf_portfolio_value"] or 0),
+            "mf_portfolio_cost": float(r.get("mf_portfolio_cost") or 0),
+            "created_at": r["created_at"],
+        })
+    return jsonify({"rows": out, "month": month})
 
 
 @app.route("/api/nifty50-closes")
@@ -524,14 +577,17 @@ def orders_summary():
 @require_auth
 def historical_value_by_month():
     """
-    Fetch portfolio value at the 1st of each month (Jan 1 2025, Feb 1 2025, ... Jan 1 2026)
+    Fetch portfolio value at the 1st of each month (e.g. Jan 1 last_year ... Jan 1 this_year)
     using Kite historical API. Uses current holdings and quantities; value = sum(qty * historical_close).
-    Query params: from_year, from_month, to_year, to_month (defaults: 2025-01 to 2026-01).
+    Query params: from_year, from_month, to_year, to_month (defaults: Jan 1 last year → Jan 1 this year).
     """
-    from_year = int(request.args.get("from_year", 2025))
-    from_month = int(request.args.get("from_month", 1))
-    to_year = int(request.args.get("to_year", 2026))
-    to_month = int(request.args.get("to_month", 1))
+    today = date.today()
+    default_to_year, default_to_month = today.year, 1
+    default_from_year, default_from_month = today.year - 1, 1
+    from_year = int(request.args.get("from_year", default_from_year))
+    from_month = int(request.args.get("from_month", default_from_month))
+    to_year = int(request.args.get("to_year", default_to_year))
+    to_month = int(request.args.get("to_month", default_to_month))
     rows, err = kite_api.fetch_portfolio_value_at_month_dates(
         session, from_year=from_year, from_month=from_month, to_year=to_year, to_month=to_month
     )

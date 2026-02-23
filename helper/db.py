@@ -74,6 +74,47 @@ def init_db():
             PRIMARY KEY (date, tradingsymbol, folio)
         )
     """)
+
+    # Archive tables for weekly snapshots (storing older fetches from same week)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_archive (
+            date TEXT NOT NULL,
+            portfolio_value REAL NOT NULL,
+            portfolio_cost REAL NOT NULL,
+            buy_amount REAL NOT NULL,
+            sell_amount REAL NOT NULL,
+            month_buy REAL NOT NULL,
+            month_sell REAL NOT NULL,
+            month_per_stock_json TEXT,
+            num_holdings INTEGER DEFAULT 0,
+            mf_portfolio_value REAL DEFAULT 0,
+            mf_portfolio_cost REAL DEFAULT 0,
+            price_changes_json TEXT,
+            created_at TEXT,
+            archived_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS holdings_equity_archive (
+            date TEXT NOT NULL,
+            tradingsymbol TEXT NOT NULL,
+            exchange TEXT NOT NULL,
+            data_json TEXT NOT NULL,
+            created_at TEXT,
+            archived_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS holdings_mf_archive (
+            date TEXT NOT NULL,
+            tradingsymbol TEXT NOT NULL,
+            folio TEXT NOT NULL,
+            data_json TEXT NOT NULL,
+            created_at TEXT,
+            archived_at TEXT
+        )
+    """)
+
     # Checklist: one row per period (month/year/quarter) and key (e.g. 2026-02, 2026, 2026-Q1)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS checklist (
@@ -86,6 +127,7 @@ def init_db():
             PRIMARY KEY (period_type, period_key)
         )
     """)
+
     # Add mf_portfolio_cost if missing (for category-wise invested amount)
     try:
         conn.execute("ALTER TABLE portfolio_daily ADD COLUMN mf_portfolio_cost REAL DEFAULT 0")
@@ -233,6 +275,7 @@ def get_cached_day(d: date) -> dict | None:
         "month_per_stock_json": _row_key(row, "month_per_stock_json") or "{}",
         "num_holdings": _row_key(row, "num_holdings", 0) or 0,
         "mf_portfolio_value": float(_row_key(row, "mf_portfolio_value", 0) or 0),
+        "mf_portfolio_cost": float(_row_key(row, "mf_portfolio_cost", 0) or 0),
         "price_changes_json": _row_key(row, "price_changes_json"),
     }
     # Build holdings from normalized tables (fallback to legacy holdings_json if present and new tables empty)
@@ -279,6 +322,19 @@ def get_previous_date(d: date) -> date | None:
     return date.fromisoformat(row["date"])
 
 
+def get_cached_day_on_or_before(d: date) -> dict | None:
+    """Return full cached row for the most recent stored date on or before d (e.g. value as of 1st of last month)."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT date FROM portfolio_daily WHERE date <= ? ORDER BY date DESC LIMIT 1",
+        (d.isoformat(),)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return get_cached_day(date.fromisoformat(row["date"]))
+
+
 def save_portfolio_day(
     d: date,
     portfolio_value: float,
@@ -294,18 +350,54 @@ def save_portfolio_day(
     mf_portfolio_cost: float = 0,
     price_changes: dict | None = None,
 ):
-    """Save daily aggregates to portfolio_daily and one row per stock/MF to holdings_equity_daily and holdings_mf_daily.
-    One row per month: any existing row for the same month (YYYY-MM) is removed before inserting this date."""
+    """
+    Save daily aggregates to portfolio_daily and one row per stock/MF to holdings_equity_daily and holdings_mf_daily.
+    Archiving logic: If a record for the same ISO week already exists in portfolio_daily, move it and its holdings
+    to the archive tables before saving this new fetch as the primary record for that week.
+    """
     mf_holdings = mf_holdings or []
     price_changes = price_changes or {}
     conn = get_db()
     date_str = d.isoformat()
-    month_prefix = date_str[:7] + "%"  # e.g. "2026-02%"
     now = datetime.now().isoformat()
-    # One row per month: remove any other date in this month first
-    conn.execute("DELETE FROM portfolio_daily WHERE date LIKE ?", (month_prefix,))
-    conn.execute("DELETE FROM holdings_equity_daily WHERE date LIKE ?", (month_prefix,))
-    conn.execute("DELETE FROM holdings_mf_daily WHERE date LIKE ?", (month_prefix,))
+
+    # Identify existing record in the same ISO week
+    year, week, weekday = d.isocalendar()
+    # Find all records in portfolio_daily
+    all_dates = conn.execute("SELECT date FROM portfolio_daily").fetchall()
+    to_archive = []
+    for row in all_dates:
+        try:
+            rd = date.fromisoformat(row["date"])
+            ry, rw, rwd = rd.isocalendar()
+            if ry == year and rw == week and row["date"] != date_str:
+                to_archive.append(row["date"])
+        except ValueError:
+            continue
+
+    # Move existing same-week records to archive
+    for adate in to_archive:
+        # Move aggregates
+        conn.execute("""
+            INSERT INTO portfolio_archive
+            SELECT *, ? as archived_at FROM portfolio_daily WHERE date = ?
+        """, (now, adate))
+        # Move equity holdings
+        conn.execute("""
+            INSERT INTO holdings_equity_archive
+            SELECT *, ? as archived_at FROM holdings_equity_daily WHERE date = ?
+        """, (now, adate))
+        # Move MF holdings
+        conn.execute("""
+            INSERT INTO holdings_mf_archive
+            SELECT *, ? as archived_at FROM holdings_mf_daily WHERE date = ?
+        """, (now, adate))
+        # Delete from daily tables
+        conn.execute("DELETE FROM portfolio_daily WHERE date = ?", (adate,))
+        conn.execute("DELETE FROM holdings_equity_daily WHERE date = ?", (adate,))
+        conn.execute("DELETE FROM holdings_mf_daily WHERE date = ?", (adate,))
+        log.info("Archived existing record for %s (same week as %s)", adate, date_str)
+
     # Aggregates only (no holdings JSON in portfolio_daily)
     conn.execute("""
         INSERT OR REPLACE INTO portfolio_daily
@@ -447,6 +539,33 @@ def get_dates_list(limit: int = 365) -> list:
     ).fetchall()
     conn.close()
     return [r["date"] for r in rows]
+
+
+def get_monthly_summary_rows() -> list:
+    """Return the latest snapshot for each month from portfolio_daily."""
+    conn = get_db()
+    # Use SUBSTR(date, 1, 7) to group by YYYY-MM and pick the latest date in each group
+    query = """
+        SELECT * FROM portfolio_daily 
+        WHERE date IN (SELECT MAX(date) FROM portfolio_daily GROUP BY SUBSTR(date, 1, 7))
+        ORDER BY date DESC
+    """
+    rows = conn.execute(query).fetchall()
+    conn.close()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_weekly_summary_rows_for_month(year_month: str) -> list:
+    """Return all snapshots (one per week) for a given YYYY-MM from portfolio_daily."""
+    conn = get_db()
+    query = """
+        SELECT * FROM portfolio_daily 
+        WHERE date LIKE ? 
+        ORDER BY date DESC
+    """
+    rows = conn.execute(query, (year_month + "%",)).fetchall()
+    conn.close()
+    return [_row_to_dict(r) for r in rows]
 
 
 def get_holdings_for_date(d: date) -> dict | None:

@@ -193,14 +193,10 @@ def _execute_many(requests_list: list) -> tuple[dict | None, str | None]:
         return None, str(e)[:200]
 
 
-def init_turso_tables():
-    """Create portfolio tables on Turso if they don't exist (same schema as local)."""
-    if not _turso_enabled():
-        return
-    # Same DDL as helper/db.py
+    # Archive tables for weekly snapshots
     _execute_one("""
-        CREATE TABLE IF NOT EXISTS portfolio_daily (
-            date TEXT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS portfolio_archive (
+            date TEXT NOT NULL,
             portfolio_value REAL NOT NULL,
             portfolio_cost REAL NOT NULL,
             buy_amount REAL NOT NULL,
@@ -212,27 +208,28 @@ def init_turso_tables():
             mf_portfolio_value REAL DEFAULT 0,
             mf_portfolio_cost REAL DEFAULT 0,
             price_changes_json TEXT,
-            created_at TEXT
+            created_at TEXT,
+            archived_at TEXT
         )
     """)
     _execute_one("""
-        CREATE TABLE IF NOT EXISTS holdings_equity_daily (
+        CREATE TABLE IF NOT EXISTS holdings_equity_archive (
             date TEXT NOT NULL,
             tradingsymbol TEXT NOT NULL,
             exchange TEXT NOT NULL,
             data_json TEXT NOT NULL,
             created_at TEXT,
-            PRIMARY KEY (date, tradingsymbol, exchange)
+            archived_at TEXT
         )
     """)
     _execute_one("""
-        CREATE TABLE IF NOT EXISTS holdings_mf_daily (
+        CREATE TABLE IF NOT EXISTS holdings_mf_archive (
             date TEXT NOT NULL,
             tradingsymbol TEXT NOT NULL,
             folio TEXT NOT NULL,
             data_json TEXT NOT NULL,
             created_at TEXT,
-            PRIMARY KEY (date, tradingsymbol, folio)
+            archived_at TEXT
         )
     """)
     _execute_one("""
@@ -283,66 +280,123 @@ def save_portfolio_day_turso(
     mf_portfolio_cost: float = 0,
     price_changes: dict | None = None,
 ):
-    """Mirror save_portfolio_day to Turso (same logic as db.save_portfolio_day)."""
+    """Mirror save_portfolio_day to Turso (same weekly archiving logic as local)."""
     if not _turso_enabled():
         return
     mf_holdings = mf_holdings or []
     price_changes = price_changes or {}
     date_str = d.isoformat()
-    month_prefix = date_str[:7] + "%"
     now = datetime.now().isoformat()
 
-    requests_list = [
-        ("DELETE FROM portfolio_daily WHERE date LIKE ?", (month_prefix,)),
-        ("DELETE FROM holdings_equity_daily WHERE date LIKE ?", (month_prefix,)),
-        ("DELETE FROM holdings_mf_daily WHERE date LIKE ?", (month_prefix,)),
-        (
-            """INSERT OR REPLACE INTO portfolio_daily
-            (date, portfolio_value, portfolio_cost, buy_amount, sell_amount,
-             month_buy, month_sell, month_per_stock_json, num_holdings,
-             mf_portfolio_value, mf_portfolio_cost, price_changes_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                date_str,
-                _sanitize_float(portfolio_value) or 0,
-                _sanitize_float(portfolio_cost) or 0,
-                _sanitize_float(buy_amount) or 0,
-                _sanitize_float(sell_amount) or 0,
-                _sanitize_float(month_buy) or 0,
-                _sanitize_float(month_sell) or 0,
-                json.dumps(month_per_stock),
-                len(holdings),
-                _sanitize_float(mf_portfolio_value) or 0,
-                _sanitize_float(mf_portfolio_cost) or 0,
-                json.dumps(price_changes),
-                now,
-            ),
-        ),
-    ]
-    out, err = _execute_many(requests_list)
-    if err:
-        log.error("Turso sync: initial pipeline failed for %s: %s", date_str, err)
-        raise RuntimeError("Turso write failed for " + date_str + ": " + err)
+    # Archiving logic on Turso: since we can't easily do a multi-step isocalendar check 
+    # without multiple round trips, we'll use a slightly simplified approach or 
+    # fetch existing dates first if needed. But for sync, we can just follow local.
+    
+    # Actually, Turso's save_portfolio_day_turso is often called during live fetch,
+    # so we should replicate the "move to archive" logic here too.
+    
+    year, week, weekday = d.isocalendar()
+    
+    # We can't easily "move" rows between tables in one statement with sqlite logic on Turso pipeline
+    # if we don't know the exact dates. So we first fetch existing dates in that ISO week.
+    
+    # For now, let's keep it consistent with daily_portfolio being the "current week's active record".
+    # Local DB is the source of truth, but we want Turso to match.
+    
+    # Simplified: identify records for this ISO week. 
+    # Since we don't have isocalendar in SQL, we'll fetch all dates from Turso for this year
+    # and check them.
+    
+    # 1. Fetch dates for this year
+    dates_resp = _execute_one("SELECT date FROM portfolio_daily WHERE date LIKE ?", [f"{d.year}%"])
+    to_archive = []
+    if dates_resp and "results" in dates_resp:
+        for res in dates_resp["results"]:
+            if res.get("type") == "error": continue
+            resp = res.get("response") or {}
+            rows = resp.get("queryset", {}).get("rows", [])
+            for r in rows:
+                if not r: continue
+                r_date_str = r[0].get("value")
+                if r_date_str == date_str: continue
+                try:
+                    rd = date.fromisoformat(r_date_str)
+                    ry, rw, rwd = rd.isocalendar()
+                    if ry == year and rw == week:
+                        to_archive.append(r_date_str)
+                except Exception: continue
 
+    reqs = []
+    for adate in to_archive:
+        # Move aggregates
+        reqs.append((
+            "INSERT INTO portfolio_archive SELECT *, ? as archived_at FROM portfolio_daily WHERE date = ?",
+            [now, adate]
+        ))
+        # Move Holdings
+        reqs.append((
+            "INSERT INTO holdings_equity_archive SELECT *, ? as archived_at FROM holdings_equity_daily WHERE date = ?",
+            [now, adate]
+        ))
+        reqs.append((
+            "INSERT INTO holdings_mf_archive SELECT *, ? as archived_at FROM holdings_mf_daily WHERE date = ?",
+            [now, adate]
+        ))
+        # Delete from daily
+        reqs.append(("DELETE FROM portfolio_daily WHERE date = ?", [adate]))
+        reqs.append(("DELETE FROM holdings_equity_daily WHERE date = ?", [adate]))
+        reqs.append(("DELETE FROM holdings_mf_daily WHERE date = ?", [adate]))
+
+    # Add the main insert
+    reqs.append((
+        """INSERT OR REPLACE INTO portfolio_daily
+        (date, portfolio_value, portfolio_cost, buy_amount, sell_amount,
+         month_buy, month_sell, month_per_stock_json, num_holdings,
+         mf_portfolio_value, mf_portfolio_cost, price_changes_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            date_str,
+            _sanitize_float(portfolio_value) or 0,
+            _sanitize_float(portfolio_cost) or 0,
+            _sanitize_float(buy_amount) or 0,
+            _sanitize_float(sell_amount) or 0,
+            _sanitize_float(month_buy) or 0,
+            _sanitize_float(month_sell) or 0,
+            json.dumps(month_per_stock),
+            len(holdings),
+            _sanitize_float(mf_portfolio_value) or 0,
+            _sanitize_float(mf_portfolio_cost) or 0,
+            json.dumps(price_changes),
+            now,
+        )
+    ))
+
+    if reqs:
+        out, err = _execute_many(reqs)
+        if err:
+            log.error("Turso sync: portfolio/archive pipeline failed for %s: %s", date_str, err)
+            # We don't raise error here to avoid blocking local save if Turso fails
+    
+    # Individual holdings inserts (separate because of potential large volume)
     _execute_one("DELETE FROM holdings_equity_daily WHERE date = ?", (date_str,))
     for h in holdings:
         sym = h.get("tradingsymbol") or ""
         ex = (h.get("exchange") or "NSE").strip()
-        if not sym:
-            continue
+        if not sym: continue
         _execute_one(
-            "INSERT INTO holdings_equity_daily (date, tradingsymbol, exchange, data_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO holdings_equity_daily (date, tradingsymbol, exchange, data_json, created_at) VALUES (?, ?, ?, ?, ?)",
             (date_str, sym, ex, json.dumps(h), now),
         )
+    
     _execute_one("DELETE FROM holdings_mf_daily WHERE date = ?", (date_str,))
     for h in mf_holdings:
         sym = h.get("tradingsymbol") or ""
         folio = str(h.get("folio") or "")
         _execute_one(
-            "INSERT INTO holdings_mf_daily (date, tradingsymbol, folio, data_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO holdings_mf_daily (date, tradingsymbol, folio, data_json, created_at) VALUES (?, ?, ?, ?, ?)",
             (date_str, sym, folio, json.dumps(h), now),
         )
-    log.info("Turso sync: saved portfolio for %s (%d equity, %d MF)", date_str, len(holdings), len(mf_holdings))
+    log.info("Turso sync: saved portfolio for %s with archiving (%d equity, %d MF)", date_str, len(holdings), len(mf_holdings))
 
 
 def update_cached_mf_only_turso(d: date, mf_holdings: list, mf_portfolio_value: float) -> None:
@@ -357,7 +411,7 @@ def update_cached_mf_only_turso(d: date, mf_holdings: list, mf_portfolio_value: 
         sym = h.get("tradingsymbol") or ""
         folio = str(h.get("folio") or "")
         _execute_one(
-            "INSERT INTO holdings_mf_daily (date, tradingsymbol, folio, data_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO holdings_mf_daily (date, tradingsymbol, folio, data_json, created_at) VALUES (?, ?, ?, ?, ?)",
             (date_str, sym, folio, json.dumps(h), now),
         )
     log.info("Turso sync: updated MF for %s", date_str)

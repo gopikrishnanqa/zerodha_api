@@ -324,5 +324,5 @@ def fetch_portfolio_value_at_month_dates(
         {"date": d, "num_stocks": num_stocks, "total_value": round(date_to_value[d], 2)}
         for d in sorted(date_to_value.keys())
     ]
-    log.info("Historical portfolio value: %d month points (Jan 1 2025 .. Jan 1 2026)", len(out))
+    log.info("Historical portfolio value: %d month points (%s .. %s)", len(out), month_dates[0].isoformat() if month_dates else "?", month_dates[-1].isoformat() if month_dates else "?")
     return out, None
