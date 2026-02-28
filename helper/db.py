@@ -146,6 +146,18 @@ def init_db():
             PRIMARY KEY (period_type, period_key)
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mf_nav_cache (
+            scheme_code TEXT NOT NULL,
+            nav_date TEXT NOT NULL,
+            nav REAL NOT NULL,
+            cached_at TEXT NOT NULL,
+            PRIMARY KEY (scheme_code, nav_date)
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_mf_nav_cache_scheme ON mf_nav_cache(scheme_code)
+    """)
     conn.commit()
 
     # Add mf_portfolio_cost if missing (for category-wise invested amount)
@@ -912,4 +924,53 @@ def get_monthly_transaction_totals() -> dict:
             total_mf_count += count
     
     return {"months": result, "total_eq_count": total_eq_count, "total_mf_count": total_mf_count}
+
+
+def get_cached_nav(scheme_code: str, start_date: date) -> list:
+    """Get cached NAV data for a scheme from the specified start date."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT nav_date, nav FROM mf_nav_cache
+        WHERE scheme_code = ? AND nav_date >= ?
+        ORDER BY nav_date ASC
+    """, (scheme_code, start_date.isoformat())).fetchall()
+    conn.close()
+    return [{"date": r["nav_date"], "nav": r["nav"]} for r in rows]
+
+
+def get_nav_cache_info(scheme_code: str) -> dict:
+    """Get cache info for a scheme - latest cached date and count."""
+    conn = get_db()
+    row = conn.execute("""
+        SELECT MAX(nav_date) as max_date, MIN(nav_date) as min_date, 
+               COUNT(*) as count, MAX(cached_at) as cached_at
+        FROM mf_nav_cache WHERE scheme_code = ?
+    """, (scheme_code,)).fetchone()
+    conn.close()
+    if row and row["count"] > 0:
+        return {
+            "max_date": row["max_date"],
+            "min_date": row["min_date"],
+            "count": row["count"],
+            "cached_at": row["cached_at"]
+        }
+    return None
+
+
+def save_nav_cache(scheme_code: str, nav_data: list):
+    """Save NAV data to cache."""
+    if not nav_data:
+        return
+    conn = get_db()
+    now = datetime.now().isoformat()
+    for entry in nav_data:
+        try:
+            conn.execute("""
+                INSERT OR REPLACE INTO mf_nav_cache (scheme_code, nav_date, nav, cached_at)
+                VALUES (?, ?, ?, ?)
+            """, (scheme_code, entry["date"], entry["nav"], now))
+        except Exception:
+            pass
+    conn.commit()
+    conn.close()
 

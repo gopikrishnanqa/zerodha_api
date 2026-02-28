@@ -5,638 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Zerodha Portfolio - Holdings & Price Comparison</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
   <style>
-    :root {
-      --bg: #f1f5f9;
-      --card: #ffffff;
-      --border: #e2e8f0;
-      --text: #1e293b;
-      --text-muted: #64748b;
-      --accent: #3b82f6;
-      --accent-hover: #2563eb;
-      --up: #16a34a;
-      --down: #dc2626;
-      --radius: 10px;
-      --card-blue: #eff6ff;
-      --card-green: #f0fdf4;
-      --card-amber: #fffbeb;
-      --card-violet: #f5f3ff;
-      --card-rose: #fff1f2;
-      --bar-gradient: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
-    }
-    * {
-      box-sizing: border-box;
-    }
-    body {
-      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      margin: 0;
-      padding: 24px;
-      min-height: 100vh;
-      line-height: 1.5;
-    }
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 16px;
-      margin-bottom: 32px;
-      padding-bottom: 24px;
-      border-bottom: 1px solid var(--border);
-    }
-    h1 {
-      font-size: 1.5rem;
-      font-weight: 700;
-      margin: 0;
-      letter-spacing: -0.02em;
-    }
-    .actions {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 18px;
-      border-radius: var(--radius);
-      font-size: 0.9rem;
-      font-weight: 600;
-      text-decoration: none;
-      border: none;
-      cursor: pointer;
-      transition: background 0.2s, color 0.2s;
-      font-family: inherit;
-    }
-    .btn-primary {
-      background: var(--accent);
-      color: white;
-    }
-    .btn-primary:hover {
-      background: var(--accent-hover);
-    }
-    .btn-secondary {
-      background: var(--card);
-      color: var(--text);
-      border: 1px solid var(--border);
-    }
-    .btn-secondary:hover {
-      background: #e2e8f0;
-      border-color: var(--text-muted);
-    }
-    .btn-success {
-      background: #16a34a;
-      color: white;
-    }
-    .btn-success:hover {
-      background: #15803d;
-    }
-    .btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-    .alert {
-      padding: 14px 18px;
-      border-radius: var(--radius);
-      margin-bottom: 24px;
-      font-size: 0.9rem;
-    }
-    .alert-error {
-      background: #fef2f2;
-      border: 1px solid #fecaca;
-      color: #b91c1c;
-    }
-    .alert-info {
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      color: #1d4ed8;
-    }
-    .alert-warning {
-      background: #fffbeb;
-      border: 1px solid #fde68a;
-      color: #b45309;
-    }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
-    }
-    .table-wrap {
-      overflow-x: auto;
-      overflow-y: visible;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: thin;
-      max-width: 100%;
-    }
-    .table-wrap.sticky-first {
-      overflow-x: auto;
-    }
-    .table-wrap.sticky-first table th:first-child,
-    .table-wrap.sticky-first table td:first-child {
-      position: sticky;
-      left: 0;
-      background: var(--card);
-      z-index: 1;
-      box-shadow: 4px 0 8px rgba(0,0,0,0.08);
-      white-space: nowrap;
-    }
-    .table-wrap.sticky-first table th:first-child { z-index: 2; }
-    .table-scroll-area { position: relative; }
-    .table-scroll-buttons {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 8px;
-      align-items: center;
-    }
-    .table-scroll-buttons .btn-scroll {
-      padding: 8px 14px;
-      min-width: 44px;
-      border-radius: var(--radius);
-      background: var(--card);
-      border: 1px solid var(--border);
-      color: var(--text);
-      font-size: 1.1rem;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    .table-scroll-buttons .btn-scroll:hover {
-      background: #e2e8f0;
-      border-color: var(--text-muted);
-    }
-    .table-scroll-buttons .btn-scroll:disabled { opacity: 0.4; cursor: not-allowed; }
-    .holdings-summary-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 20px;
-    }
-    .holdings-summary-block {
-      padding: 12px 16px;
-      background: var(--card);
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-    }
-    .holdings-summary-label {
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      margin-bottom: 10px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--border);
-    }
-    .holdings-summary-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      font-size: 0.9rem;
-      margin-top: 6px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.875rem;
-    }
-    th {
-      text-align: left;
-      padding: 14px 16px;
-      font-weight: 600;
-      color: var(--text-muted);
-      background: #f1f5f9;
-      white-space: nowrap;
-      cursor: pointer;
-      user-select: none;
-    }
-    th:hover { color: var(--text); }
-    th.sort-asc::after { content: ' ▲'; font-size: 0.7em; opacity: 0.8; }
-    th.sort-desc::after { content: ' ▼'; font-size: 0.7em; opacity: 0.8; }
-    td {
-      padding: 12px 16px;
-      border-top: 1px solid var(--border);
-    }
-    tr:hover td {
-      background: #f8fafc;
-    }
-    tr.total-row td {
-      background: #e2e8f0;
-      border-top: 2px solid var(--border);
-      font-weight: 600;
-    }
-    .compact-view-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem; user-select: none; }
-    .compact-view-toggle input { cursor: pointer; }
-    /* Compact view: hide non-essential columns in Stocks (Exchange, Company, Invested/Sold Month, 7d/30d/6m/1y) */
-    body.holdings-compact #holdings-table th:nth-child(2),
-    body.holdings-compact #holdings-table td:nth-child(2),
-    body.holdings-compact #holdings-table th:nth-child(10),
-    body.holdings-compact #holdings-table td:nth-child(10),
-    body.holdings-compact #holdings-table th:nth-child(11),
-    body.holdings-compact #holdings-table td:nth-child(11),
-    body.holdings-compact #holdings-table th:nth-child(12),
-    body.holdings-compact #holdings-table td:nth-child(12),
-    body.holdings-compact #holdings-table th:nth-child(13),
-    body.holdings-compact #holdings-table td:nth-child(13),
-    body.holdings-compact #holdings-table th:nth-child(14),
-    body.holdings-compact #holdings-table td:nth-child(14),
-    body.holdings-compact #holdings-table th:nth-child(15),
-    body.holdings-compact #holdings-table td:nth-child(15),
-    body.holdings-compact #holdings-table th:nth-child(16),
-    body.holdings-compact #holdings-table td:nth-child(16) { display: none; }
-    /* Compact view: hide P&L and P&L % in MF table */
-    body.holdings-compact #mf-holdings-table th:nth-child(8),
-    body.holdings-compact #mf-holdings-table td:nth-child(8),
-    body.holdings-compact #mf-holdings-table th:nth-child(9),
-    body.holdings-compact #mf-holdings-table td:nth-child(9) { display: none; }
-    .pct-up { color: var(--up); }
-    .pct-down { color: var(--down); }
-    .pct-na { color: var(--text-muted); font-style: italic; }
-    .loading-dot {
-      display: inline-block;
-      width: 6px;
-      height: 6px;
-      background: var(--text-muted);
-      border-radius: 50%;
-      animation: pulse 1s infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 0.5; }
-      50% { opacity: 1; }
-    }
-    .empty-state {
-      text-align: center;
-      padding: 60px 24px;
-      color: var(--text-muted);
-    }
-    .empty-state p {
-      margin: 0 0 16px;
-      font-size: 1rem;
-    }
-    .empty-state small {
-      font-size: 0.85rem;
-    }
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
-      border-radius: 6px;
-      font-size: 0.8rem;
-      font-weight: 500;
-    }
-    .status-connected {
-      background: var(--card-green);
-      color: var(--up);
-      border: 1px solid #bbf7d0;
-    }
-    .status-disconnected {
-      background: #f1f5f9;
-      color: var(--text-muted);
-      border: 1px solid var(--border);
-    }
-    .summary-cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    .summary-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-    }
-    .summary-card .label { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px; }
-    .summary-card .value { font-size: 1.25rem; font-weight: 700; }
-    .summary-card.summary-hint .value { color: var(--text-muted); }
-    .summary-6cols {
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-    @media (max-width: 1200px) { .summary-6cols { grid-template-columns: repeat(3, 1fr); } }
-    @media (max-width: 768px)  { .summary-6cols { grid-template-columns: 1fr; } }
-    .summary-6col {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 14px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-      border-left: 4px solid var(--accent);
-    }
-    .summary-6col:nth-child(1) { border-left-color: #3b82f6; background: var(--card-blue); }
-    .summary-6col:nth-child(2) { border-left-color: #16a34a; background: var(--card-green); }
-    .summary-6col:nth-child(3) { border-left-color: #d97706; background: var(--card-amber); }
-    .summary-6col:nth-child(4) { border-left-color: #7c3aed; background: var(--card-violet); }
-    .summary-6col:nth-child(5) { border-left-color: #e11d48; background: var(--card-rose); }
-    .summary-6col:nth-child(6) { border-left-color: #0891b2; background: #ecfeff; border-left-color: #0891b2; }
-    .summary-6col .col-title { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px; font-weight: 600; text-align: center; }
-    .summary-6col .row { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; padding: 4px 0; }
-    .summary-6col .row .k { color: var(--text-muted); }
-    .summary-6col .row .v { font-weight: 600; text-decoration: none; }
-    .cache-indicator { margin-bottom: 12px; font-size: 0.85rem; color: var(--text-muted); }
-    .comparison-cards {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-    .comparison-card {
-      background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 50%, #fdf2f8 100%);
-      border: 1px solid #e0e7ff;
-      border-radius: var(--radius);
-      padding: 16px;
-      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.12);
-    }
-    .comparison-card h3 { font-size: 0.9rem; margin: 0 0 12px; color: var(--text); font-weight: 600; }
-    .comparison-card table { width: 100%; font-size: 0.875rem; }
-    .comparison-card td { padding: 6px 0; color: var(--text); }
-    .comparison-card .diff-up { color: var(--up); font-weight: 600; }
-    .comparison-card .diff-down { color: var(--down); font-weight: 600; }
-    .section-title { margin: 0 0 12px; padding: 14px 16px 0; font-size: 1rem; color: var(--text-muted); }
-    .comparison-label {
-      font-size: 0.7rem;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 2px;
-    }
-    footer {
-      margin-top: 32px;
-      padding-top: 24px;
-      border-top: 1px solid var(--border);
-      font-size: 0.8rem;
-      color: var(--text-muted);
-    }
-    .nav {
-      display: flex;
-      gap: 4px;
-      margin-bottom: 24px;
-      flex-wrap: wrap;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 12px;
-    }
-    .nav a {
-      padding: 8px 14px;
-      border-radius: 6px;
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 0.9rem;
-      font-weight: 500;
-    }
-    .nav a:hover { color: var(--text); background: #e2e8f0; }
-    .nav a.active { color: var(--accent); background: var(--card-blue); }
-    .nav-dropdown {
-      position: relative;
-    }
-    .nav-dropdown-trigger {
-      padding: 8px 14px;
-      border-radius: 6px;
-      color: var(--text-muted);
-      font-size: 0.9rem;
-      font-weight: 500;
-      cursor: pointer;
-      display: inline-block;
-    }
-    .nav-dropdown-trigger:hover {
-      color: var(--text);
-      background: #e2e8f0;
-    }
-    .nav-dropdown.has-active .nav-dropdown-trigger {
-      color: var(--accent);
-    }
-    .nav-dropdown-menu {
-      display: none;
-      position: absolute;
-      top: 100%;
-      left: 0;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-      min-width: 160px;
-      z-index: 100;
-      padding: 4px 0;
-    }
-    .nav-dropdown:hover .nav-dropdown-menu {
-      display: block;
-    }
-    .nav-dropdown-menu a {
-      display: block;
-      padding: 10px 16px;
-      color: var(--text);
-      text-decoration: none;
-      font-size: 0.9rem;
-    }
-    .nav-dropdown-menu a:hover {
-      background: var(--bg);
-    }
-    .nav-dropdown-menu a.active {
-      color: var(--accent);
-      background: var(--card-blue);
-    }
-    .period-btn {
-      padding: 6px 14px;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      background: var(--bg);
-      color: var(--fg);
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
-      transition: all 0.15s;
-    }
-    .period-btn:hover {
-      background: var(--card-blue);
-      border-color: var(--accent);
-    }
-    .period-btn.active {
-      background: var(--accent);
-      color: #fff;
-      border-color: var(--accent);
-    }
-    .period-btn.disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-      background: #e5e7eb;
-    }
-    .page { display: none; }
-    .page.active { display: block; }
-    .checklist-period { margin-bottom: 32px; }
-    .checklist-period h3 { font-size: 1.15rem; margin-bottom: 8px; color: var(--accent); display: flex; align-items: center; gap: 8px; }
-    .checklist-section { margin-bottom: 20px; }
-    .checklist-section h4 { font-size: 1rem; color: var(--text-muted); margin-bottom: 10px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
-    .checklist-list { list-style: none; padding: 0; margin: 0; }
-    .checklist-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-radius: 6px; }
-    .checklist-item:hover { background: #f8fafc; }
-    .checklist-item input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); }
-    .checklist-item label { cursor: pointer; flex: 1; font-size: 0.9rem; }
-    .checklist-item.done label { text-decoration: line-through; color: var(--text-muted); }
-    .checklist-item-actions { margin-left: auto; display: flex; gap: 6px; }
-    .checklist-item-actions .btn-link { background: none; border: none; color: var(--text-muted); font-size: 0.8rem; cursor: pointer; padding: 2px 6px; text-decoration: none; }
-    .checklist-item-actions .btn-link:hover { color: var(--accent); }
-    .checklist-add-form { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-    .checklist-add-form input { flex: 1; min-width: 180px; padding: 8px 12px; border-radius: 6px; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 0.9rem; }
-    .checklist-add-form .btn-add { padding: 8px 14px; font-size: 0.85rem; }
-    .checklist-archived { margin-top: 12px; }
-    .checklist-archived summary { cursor: pointer; color: var(--text-muted); font-size: 0.9rem; }
-    .checklist-archived ul { list-style: none; padding: 0; margin: 8px 0 0 0; }
-    .checklist-archived .restore-btn { font-size: 0.8rem; padding: 2px 8px; }
-    .checklist-toolbar { margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .checklist-toolbar label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem; user-select: none; }
-    .checklist-toolbar input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); }
-    #checklist-content.checklist-hide-done .checklist-item.done { display: none; }
-    .checklist-badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: var(--card); border: 1px solid var(--border); color: var(--text-muted); }
-    .text-muted { color: var(--text-muted); }
-    a.nav-link { color: var(--accent); text-decoration: none; }
-    a.nav-link:hover { text-decoration: underline; }
-    /* Monthly type grid - stocks vs MF breakdown */
-    .monthly-totals-section { margin-top: 24px; }
-    .monthly-type-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-    }
-    .monthly-type-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 16px;
-    }
-    .monthly-type-card h4 {
-      margin: 0 0 12px;
-      font-size: 0.95rem;
-      color: var(--text);
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 8px;
-    }
-    .monthly-type-card h4 small { font-weight: 400; }
-    .monthly-type-card.total {
-      background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-      border: 2px solid var(--accent);
-    }
-    .monthly-type-card.total h4 {
-      color: var(--accent);
-      font-weight: 700;
-    }
-    .type-stats {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .type-stats .stat {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .type-stats .stat .label {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }
-    .type-stats .stat .value {
-      font-size: 1.15rem;
-      font-weight: 600;
-      font-variant-numeric: tabular-nums;
-    }
-    .type-stats .stat.net {
-      margin-top: 4px;
-      padding-top: 8px;
-      border-top: 1px dashed var(--border);
-    }
-    .type-stats .stat.net .value {
-      font-size: 1.25rem;
-      font-weight: 700;
-    }
-    @media (max-width: 800px) {
-      .monthly-type-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-    /* Portfolio Distribution */
-    .distribution-section {
-      margin-top: 24px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-    }
-    .distribution-section h3 {
-      margin: 0 0 16px;
-      font-size: 1.1rem;
-    }
-    .distribution-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
-    }
-    .distribution-category {
-      background: var(--bg);
-      border-radius: 8px;
-      padding: 16px;
-    }
-    .distribution-category h4 {
-      margin: 0 0 12px;
-      font-size: 0.95rem;
-      color: var(--text);
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 8px;
-    }
-    .distribution-bars {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .distribution-bar-item {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .distribution-bar-label {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.85rem;
-    }
-    .distribution-bar-label .name { color: var(--text); }
-    .distribution-bar-label .value { font-weight: 600; }
-    .distribution-bar-label .pct { color: var(--text-muted); margin-left: 8px; }
-    .distribution-bar {
-      height: 8px;
-      background: var(--border);
-      border-radius: 4px;
-      overflow: hidden;
-    }
-    .distribution-bar-fill {
-      height: 100%;
-      border-radius: 4px;
-      transition: width 0.3s ease;
-    }
-    .bar-largecap { background: #3b82f6; }
-    .bar-midcap { background: #8b5cf6; }
-    .bar-smallcap { background: #ec4899; }
-    .bar-etf { background: #f59e0b; }
-    .bar-equity { background: #10b981; }
-    .bar-debt { background: #6366f1; }
-    .bar-gold { background: #eab308; }
-    .bar-hybrid { background: #14b8a6; }
-    .bar-other { background: #94a3b8; }
-    .bar-active { background: #ef4444; }
-    .bar-passive { background: #22c55e; }
-    .distribution-total {
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px dashed var(--border);
-      display: flex;
-      justify-content: space-between;
-      font-weight: 600;
-    }
+    /* Main styles loaded from static/css/styles.css */
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
@@ -2405,6 +1776,10 @@
       });
     }
 
+    let mfDipAllFunds = [];
+    
+    let mfDipActiveTab = 'auto';
+    
     async function loadMfDipPage() {
       const el = document.getElementById('mf-dip-content');
       if (!el) return;
@@ -2413,28 +1788,97 @@
         const r = await fetch('/api/mf-list', { credentials: 'same-origin' });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || 'Failed to load MF list');
-        const funds = d.funds || [];
+        let funds = d.funds || [];
         if (funds.length === 0) {
           el.innerHTML = '<p class="text-muted">No mutual funds in your portfolio.</p>';
           return;
         }
-        const options = funds.map(f => '<option value="' + f.symbol + '">' + f.name + '</option>').join('');
+        // Sort funds alphabetically by name
+        funds = funds.sort((a, b) => {
+          const nameA = (a.fund_name || a.name || a.tradingsymbol || '').toLowerCase();
+          const nameB = (b.fund_name || b.name || b.tradingsymbol || '').toLowerCase();
+          return nameA.localeCompare(nameB);
+        });
+        mfDipAllFunds = funds;
+        
+        const options = funds.map(f => '<option value="' + (f.tradingsymbol || f.symbol) + '">' + (f.fund_name || f.name || f.tradingsymbol) + '</option>').join('');
+        
         el.innerHTML = '<h3>MF Dip Analysis</h3>' +
-          '<p class="text-muted">Select a mutual fund to view NAV history and identify dip points for investment opportunities.</p>' +
-          '<div style="margin: 16px 0;">' +
-          '<select id="mf-dip-select" style="padding: 8px; min-width: 300px;">' + options + '</select>' +
-          '<div class="period-filter" style="margin-top: 12px; display: flex; gap: 8px;">' +
-          '<button class="period-btn active" data-period="1m">1M</button>' +
-          '<button class="period-btn" data-period="3m">3M</button>' +
+          '<p class="text-muted" style="margin-bottom: 16px;">Analyze NAV history to identify dip points for investment opportunities.</p>' +
+          // Tab buttons
+          '<div class="mf-dip-tabs" style="display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid var(--border);">' +
+          '<button class="mf-dip-tab active" data-tab="auto" style="padding: 12px 24px; border: none; background: none; font-size: 14px; font-weight: 600; cursor: pointer; border-bottom: 2px solid var(--accent); margin-bottom: -2px; color: var(--accent);">Auto Analysis</button>' +
+          '<button class="mf-dip-tab" data-tab="select" style="padding: 12px 24px; border: none; background: none; font-size: 14px; font-weight: 500; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -2px;">Select & Check</button>' +
+          '</div>' +
+          // Auto Analysis Tab Content
+          '<div id="mf-tab-auto" class="mf-tab-content">' +
+          '<div id="mf-overview-section">' +
+          '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">' +
+          '<h4 style="margin: 0;">Investment Opportunities (' + funds.length + ' funds)</h4>' +
+          '<button id="btn-refresh-analysis" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;">Refresh Analysis</button>' +
+          '</div>' +
+          '<div id="mf-filter-buttons" style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">' +
+          '<button class="mf-filter-btn active" data-filter="all" style="padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--accent); color: white; font-size: 12px; cursor: pointer; font-weight: 500;">All</button>' +
+          '<button class="mf-filter-btn" data-filter="strong" style="padding: 6px 14px; border-radius: 20px; border: 1px solid #16a34a; background: transparent; color: #16a34a; font-size: 12px; cursor: pointer; font-weight: 500;">🔥 Strong Buy</button>' +
+          '<button class="mf-filter-btn" data-filter="good" style="padding: 6px 14px; border-radius: 20px; border: 1px solid #eab308; background: transparent; color: #eab308; font-size: 12px; cursor: pointer; font-weight: 500;">👍 Good</button>' +
+          '<button class="mf-filter-btn" data-filter="neutral" style="padding: 6px 14px; border-radius: 20px; border: 1px solid #94a3b8; background: transparent; color: #94a3b8; font-size: 12px; cursor: pointer; font-weight: 500;">➖ Neutral</button>' +
+          '<button class="mf-filter-btn" data-filter="wait" style="padding: 6px 14px; border-radius: 20px; border: 1px solid #f97316; background: transparent; color: #f97316; font-size: 12px; cursor: pointer; font-weight: 500;">⏳ Wait</button>' +
+          '</div>' +
+          '<p id="mf-overview-status" class="text-muted" style="font-size: 13px; margin-bottom: 12px;">Analyzing all funds... <span id="mf-analysis-progress"></span></p>' +
+          '</div>' +
+          '<div id="mf-overview-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px;"></div>' +
+          '</div>' +
+          // Select & Check Tab Content
+          '<div id="mf-tab-select" class="mf-tab-content" style="display: none;">' +
+          '<div class="mf-dip-header">' +
+          '<div class="fund-select-wrapper">' +
+          '<label for="mf-dip-select">Select Mutual Fund</label>' +
+          '<select id="mf-dip-select" class="styled-select">' + options + '</select>' +
+          '<div class="fund-count">' + funds.length + ' funds in your portfolio</div>' +
+          '</div>' +
+          '<div>' +
+          '<label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px; font-weight:500;">Time Period</label>' +
+          '<div class="period-filter" style="display: flex; gap: 8px; flex-wrap: wrap;">' +
+          '<button class="period-btn" data-period="1m">1M</button>' +
+          '<button class="period-btn active" data-period="3m">3M</button>' +
           '<button class="period-btn" data-period="6m">6M</button>' +
           '<button class="period-btn" data-period="1y">1Y</button>' +
           '<button class="period-btn" data-period="2y">2Y</button>' +
           '<button class="period-btn" data-period="all">All</button>' +
-          '</div></div>' +
-          '<div id="mf-dip-chart-area"></div>';
+          '</div></div></div>' +
+          '<div id="mf-dip-chart-area"></div>' +
+          '</div>';
+        
+        // Tab switching
+        const tabs = el.querySelectorAll('.mf-dip-tab');
+        tabs.forEach(tab => {
+          tab.addEventListener('click', () => {
+            const tabId = tab.dataset.tab;
+            mfDipActiveTab = tabId;
+            tabs.forEach(t => {
+              t.classList.remove('active');
+              t.style.borderBottomColor = 'transparent';
+              t.style.color = 'var(--text-muted)';
+              t.style.fontWeight = '500';
+            });
+            tab.classList.add('active');
+            tab.style.borderBottomColor = 'var(--accent)';
+            tab.style.color = 'var(--accent)';
+            tab.style.fontWeight = '600';
+            document.getElementById('mf-tab-auto').style.display = tabId === 'auto' ? 'block' : 'none';
+            document.getElementById('mf-tab-select').style.display = tabId === 'select' ? 'block' : 'none';
+            // Load chart when switching to select tab
+            if (tabId === 'select') {
+              const select = document.getElementById('mf-dip-select');
+              if (select && select.value) loadMfDipChart(select.value, '3m');
+            }
+          });
+        });
+        
+        // Select & Check tab functionality
         const select = document.getElementById('mf-dip-select');
-        const periodBtns = el.querySelectorAll('.period-btn');
-        let activePeriod = '1m';
+        const periodBtns = el.querySelectorAll('#mf-tab-select .period-btn');
+        let activePeriod = '3m';
         const loadChart = () => loadMfDipChart(select.value, activePeriod);
         select.addEventListener('change', loadChart);
         periodBtns.forEach(btn => btn.addEventListener('click', () => {
@@ -2443,9 +1887,221 @@
           activePeriod = btn.dataset.period;
           loadChart();
         }));
-        loadChart();
+        
+        // Refresh button - force refresh bypasses cache
+        document.getElementById('btn-refresh-analysis')?.addEventListener('click', () => {
+          analyzeMfDipOverview(mfDipAllFunds, true);
+        });
+        
+        // Filter buttons
+        el.querySelectorAll('.mf-filter-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            el.querySelectorAll('.mf-filter-btn').forEach(b => {
+              b.classList.remove('active');
+              b.style.background = 'transparent';
+              b.style.color = b.style.borderColor;
+            });
+            btn.classList.add('active');
+            btn.style.background = btn.dataset.filter === 'all' ? 'var(--accent)' : btn.style.borderColor;
+            btn.style.color = 'white';
+            filterMfCards(btn.dataset.filter);
+          });
+        });
+        
+        // Auto-analyze all funds
+        analyzeMfDipOverview(funds);
       } catch (e) {
         el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+      }
+    }
+    
+    const MF_ANALYSIS_CACHE_KEY = 'mf_dip_analysis_cache';
+    const MF_ANALYSIS_CACHE_HOURS = 24;
+    
+    function getMfAnalysisCache() {
+      try {
+        const cached = localStorage.getItem(MF_ANALYSIS_CACHE_KEY);
+        if (!cached) return null;
+        const data = JSON.parse(cached);
+        const cacheAge = (Date.now() - data.timestamp) / (1000 * 60 * 60);
+        if (cacheAge > MF_ANALYSIS_CACHE_HOURS) return null;
+        return data;
+      } catch (e) { return null; }
+    }
+    
+    function saveMfAnalysisCache(results) {
+      try {
+        localStorage.setItem(MF_ANALYSIS_CACHE_KEY, JSON.stringify({
+          timestamp: Date.now(),
+          results: results
+        }));
+      } catch (e) {}
+    }
+    
+    async function analyzeMfDipOverview(funds, forceRefresh = false) {
+      const cardsEl = document.getElementById('mf-overview-cards');
+      const progressEl = document.getElementById('mf-analysis-progress');
+      if (!cardsEl) return;
+      
+      // Check cache first
+      const cached = getMfAnalysisCache();
+      if (cached && !forceRefresh) {
+        const cacheAge = ((Date.now() - cached.timestamp) / (1000 * 60 * 60)).toFixed(1);
+        renderMfAnalysisResults(cached.results, cacheAge);
+        return;
+      }
+      
+      // Show loading state
+      if (progressEl) progressEl.parentElement.innerHTML = 'Analyzing all funds... <span id="mf-analysis-progress">(0/' + funds.length + ')</span>';
+      
+      const results = [];
+      let completed = 0;
+      
+      for (const fund of funds) {
+        const symbol = fund.tradingsymbol || fund.symbol;
+        const name = fund.fund_name || fund.name || symbol;
+        const progressSpan = document.getElementById('mf-analysis-progress');
+        if (progressSpan) progressSpan.textContent = `(${completed + 1}/${funds.length})`;
+        
+        try {
+          const [r3m, r6m] = await Promise.all([
+            fetch('/api/mf-nav-history/' + encodeURIComponent(symbol) + '?period=3m', { credentials: 'same-origin' }),
+            fetch('/api/mf-nav-history/' + encodeURIComponent(symbol) + '?period=6m', { credentials: 'same-origin' })
+          ]);
+          const d3m = await r3m.json().catch(() => ({}));
+          const d6m = await r6m.json().catch(() => ({}));
+          
+          const stats3m = d3m.stats || {};
+          const stats6m = d6m.stats || {};
+          
+          results.push({
+            symbol,
+            name,
+            pos3m: stats3m.position_in_range,
+            pos6m: stats6m.position_in_range,
+            dip3m: stats3m.dip_from_max,
+            dip6m: stats6m.dip_from_max,
+            current: stats3m.current_nav || stats6m.current_nav
+          });
+        } catch (e) {
+          results.push({ symbol, name, error: true });
+        }
+        completed++;
+      }
+      
+      // Sort by investment opportunity
+      results.sort((a, b) => {
+        const scoreA = (a.pos3m != null ? a.pos3m : 100) + (a.pos6m != null ? a.pos6m : 100);
+        const scoreB = (b.pos3m != null ? b.pos3m : 100) + (b.pos6m != null ? b.pos6m : 100);
+        return scoreA - scoreB;
+      });
+      
+      // Save to cache
+      saveMfAnalysisCache(results);
+      
+      // Render results
+      renderMfAnalysisResults(results, 'just now');
+    }
+    
+    function renderMfAnalysisResults(results, cacheAge) {
+      const cardsEl = document.getElementById('mf-overview-cards');
+      const statusEl = document.getElementById('mf-overview-status');
+      if (!cardsEl) return;
+
+      const goodOpportunities = results.filter(r => (r.pos3m != null && r.pos3m <= 40) || (r.pos6m != null && r.pos6m <= 40));
+      const cacheInfo = typeof cacheAge === 'string' ? cacheAge : cacheAge + ' hours ago';
+      const summaryText = goodOpportunities.length > 0
+        ? `<span class="pct-up">${goodOpportunities.length} fund(s)</span> showing good investment opportunity <span class="text-muted" style="font-size: 11px;">(cached ${cacheInfo})</span>`
+        : `No funds currently showing strong dip signals <span class="text-muted" style="font-size: 11px;">(cached ${cacheInfo})</span>`;
+      if (statusEl) statusEl.innerHTML = summaryText;
+      
+      // Render cards
+      let cardsHtml = '';
+      results.forEach(r => {
+        if (r.error) {
+          cardsHtml += `<div class="card mf-fund-card" style="opacity: 0.6;"><strong style="font-size: 13px;">${r.name.length > 35 ? r.name.slice(0,32) + '...' : r.name}</strong><p class="text-muted" style="margin: 4px 0 0; font-size: 12px;">Unable to analyze</p></div>`;
+          return;
+        }
+        
+        const getAdvice = (pos) => {
+          if (pos == null) return { text: '–', cls: 'text-muted', icon: '–', opportunity: '' };
+          if (pos <= 20) return { text: 'Strong Buy', cls: 'pct-up', icon: '🟢', opportunity: 'strong' };
+          if (pos <= 40) return { text: 'Good', cls: 'pct-up', icon: '🟡', opportunity: 'good' };
+          if (pos <= 60) return { text: 'Neutral', cls: 'text-muted', icon: '⚪', opportunity: 'neutral' };
+          if (pos <= 80) return { text: 'Wait', cls: 'pct-down', icon: '🟠', opportunity: 'wait' };
+          return { text: 'Avoid', cls: 'pct-down', icon: '🔴', opportunity: 'avoid' };
+        };
+        
+        const adv3m = getAdvice(r.pos3m);
+        const adv6m = getAdvice(r.pos6m);
+        const bestScore = Math.min(r.pos3m || 100, r.pos6m || 100);
+        const opportunityClass = bestScore <= 20 ? 'opportunity-strong' : bestScore <= 40 ? 'opportunity-good' : bestScore <= 60 ? 'opportunity-neutral' : bestScore <= 80 ? 'opportunity-wait' : 'opportunity-avoid';
+        
+        const dataOpp = bestScore <= 20 ? 'strong' : bestScore <= 40 ? 'good' : bestScore <= 60 ? 'neutral' : bestScore <= 80 ? 'wait' : 'avoid';
+        cardsHtml += `
+          <div class="card mf-fund-card ${opportunityClass}" data-opportunity="${dataOpp}" onclick="selectMfForChart('${r.symbol}')">
+            <strong style="font-size: 13px;" title="${r.name}">${r.name.length > 40 ? r.name.slice(0,37) + '...' : r.name}</strong>
+            <div style="display: flex; gap: 16px; margin-top: 8px; font-size: 12px;">
+              <div><span class="text-muted">3M:</span> <span class="${adv3m.cls}">${adv3m.icon} ${adv3m.text}</span>${r.pos3m != null ? ' <span class="text-muted">(' + r.pos3m.toFixed(0) + '%)</span>' : ''}</div>
+              <div><span class="text-muted">6M:</span> <span class="${adv6m.cls}">${adv6m.icon} ${adv6m.text}</span>${r.pos6m != null ? ' <span class="text-muted">(' + r.pos6m.toFixed(0) + '%)</span>' : ''}</div>
+            </div>
+            ${r.dip3m != null || r.dip6m != null ? '<div style="font-size: 11px; margin-top: 4px; color: var(--text-muted);">Dip from max: ' + (r.dip3m != null ? r.dip3m.toFixed(1) + '% (3M)' : '') + (r.dip3m != null && r.dip6m != null ? ' / ' : '') + (r.dip6m != null ? r.dip6m.toFixed(1) + '% (6M)' : '') + '</div>' : ''}
+          </div>`;
+      });
+      
+      if (cardsEl) cardsEl.innerHTML = cardsHtml;
+      
+      // Update filter counts
+      updateMfFilterCounts();
+    }
+    
+    function updateMfFilterCounts() {
+      const cards = document.querySelectorAll('#mf-overview-cards .mf-fund-card');
+      const counts = { all: cards.length, strong: 0, good: 0, neutral: 0, wait: 0, avoid: 0 };
+      cards.forEach(card => {
+        const opp = card.dataset.opportunity;
+        if (opp && counts[opp] !== undefined) counts[opp]++;
+      });
+      document.querySelectorAll('.mf-filter-btn').forEach(btn => {
+        const filter = btn.dataset.filter;
+        const count = counts[filter];
+        if (count !== undefined) {
+          const label = btn.textContent.replace(/\s*\(\d+\)$/, '');
+          btn.textContent = label + ' (' + count + ')';
+        }
+      });
+    }
+    
+    function filterMfCards(filter) {
+      const cards = document.querySelectorAll('#mf-overview-cards .mf-fund-card');
+      let visibleCount = 0;
+      cards.forEach(card => {
+        const opp = card.dataset.opportunity;
+        const show = filter === 'all' || opp === filter;
+        card.style.display = show ? '' : 'none';
+        if (show) visibleCount++;
+      });
+      const statusEl = document.getElementById('mf-overview-status');
+      if (statusEl && filter !== 'all') {
+        const filterLabel = filter === 'strong' ? 'Strong Buy' : filter === 'good' ? 'Good' : filter === 'neutral' ? 'Neutral' : filter === 'wait' ? 'Wait' : 'Avoid';
+        statusEl.innerHTML = `Showing <span class="pct-up">${visibleCount}</span> ${filterLabel} fund(s)`;
+      }
+    }
+
+    function selectMfForChart(symbol) {
+      // Switch to Select & Check tab
+      const selectTab = document.querySelector('.mf-dip-tab[data-tab="select"]');
+      if (selectTab) selectTab.click();
+      
+      // Set the fund and load chart
+      const select = document.getElementById('mf-dip-select');
+      if (select) {
+        select.value = symbol;
+        loadMfDipChart(symbol, '3m');
+        // Scroll to chart area
+        setTimeout(() => {
+          document.getElementById('mf-dip-chart-area')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
       }
     }
 
@@ -2465,14 +2121,14 @@
           return;
         }
         const fmt = (v) => v != null ? v.toFixed(2) : '–';
-        const dipPct = stats.dip_from_max_pct != null ? stats.dip_from_max_pct.toFixed(1) + '%' : '–';
+        const dipPct = stats.dip_from_max != null ? stats.dip_from_max.toFixed(1) + '%' : '–';
         const posInRange = stats.position_in_range != null ? stats.position_in_range.toFixed(0) + '%' : '–';
         const dipClass = stats.position_in_range != null && stats.position_in_range <= 20 ? 'pct-up' : (stats.position_in_range > 80 ? 'pct-down' : '');
         area.innerHTML = '<div class="summary-cards" style="margin-bottom: 16px;">' +
-          '<div class="summary-card"><div class="label">Current NAV</div><div class="value">' + fmt(stats.current) + '</div></div>' +
-          '<div class="summary-card"><div class="label">Min</div><div class="value">' + fmt(stats.min) + '</div></div>' +
-          '<div class="summary-card"><div class="label">Max</div><div class="value">' + fmt(stats.max) + '</div></div>' +
-          '<div class="summary-card"><div class="label">Avg</div><div class="value">' + fmt(stats.avg) + '</div></div>' +
+          '<div class="summary-card"><div class="label">Current NAV</div><div class="value">' + fmt(stats.current_nav) + '</div></div>' +
+          '<div class="summary-card"><div class="label">Min</div><div class="value">' + fmt(stats.min_nav) + '</div></div>' +
+          '<div class="summary-card"><div class="label">Max</div><div class="value">' + fmt(stats.max_nav) + '</div></div>' +
+          '<div class="summary-card"><div class="label">Avg</div><div class="value">' + fmt(stats.avg_nav) + '</div></div>' +
           '<div class="summary-card"><div class="label">Dip from Max</div><div class="value pct-down">' + dipPct + '</div></div>' +
           '<div class="summary-card"><div class="label">Position in Range</div><div class="value ' + dipClass + '">' + posInRange + '</div></div>' +
           '</div>' +
@@ -2498,9 +2154,9 @@
             labels: navData.map(n => n.date),
             datasets: [
               { label: 'NAV', data: navData.map(n => n.nav), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.2 },
-              { label: 'Min', data: navData.map(() => stats.min), borderColor: '#ef4444', borderDash: [5, 5], pointRadius: 0 },
-              { label: 'Avg', data: navData.map(() => stats.avg), borderColor: '#6b7280', borderDash: [3, 3], pointRadius: 0 },
-              { label: 'Max', data: navData.map(() => stats.max), borderColor: '#10b981', borderDash: [5, 5], pointRadius: 0 }
+              { label: 'Min', data: navData.map(() => stats.min_nav), borderColor: '#ef4444', borderDash: [5, 5], pointRadius: 0 },
+              { label: 'Avg', data: navData.map(() => stats.avg_nav), borderColor: '#6b7280', borderDash: [3, 3], pointRadius: 0 },
+              { label: 'Max', data: navData.map(() => stats.max_nav), borderColor: '#10b981', borderDash: [5, 5], pointRadius: 0 }
             ]
           },
           options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: false } } }

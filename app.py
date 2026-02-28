@@ -1054,23 +1054,39 @@ def mf_list():
     cached = db.get_cached_day_on_or_before(today)
     
     mf_funds = []
+    mf_holdings = []
+    
+    # Try to get from cache first
     if cached:
         try:
             mf_holdings = json.loads(cached.get("mf_holdings_json") or "[]")
-            for h in mf_holdings:
-                sym = h.get("tradingsymbol", "")
-                fund_name = h.get("fund", "") or sym
-                if sym:
-                    mf_funds.append({
-                        "tradingsymbol": sym,
-                        "fund_name": fund_name,
-                        "quantity": h.get("quantity", 0),
-                        "average_price": h.get("average_price", 0),
-                        "last_price": h.get("last_price", 0),
-                        "pnl": h.get("pnl", 0),
-                    })
         except (json.JSONDecodeError, TypeError):
             pass
+    
+    # If no cached MF holdings, fetch live from Kite
+    if not mf_holdings:
+        log.info("MF list: No cached MF holdings, fetching live from Kite")
+        mf_list_live, mf_err = kite_api.fetch_mf_holdings(session)
+        if mf_list_live:
+            mf_holdings = mf_list_live
+            # Save to cache for future use
+            if cached:
+                mf_val = sum(float(h.get("last_price", 0) or 0) * float(h.get("quantity", 0) or 0) for h in mf_holdings)
+                db.update_cached_mf_only(today, mf_holdings, mf_val)
+    
+    for h in mf_holdings:
+        sym = h.get("tradingsymbol", "")
+        fund_name = h.get("fund", "") or sym
+        if sym:
+            mf_funds.append({
+                "tradingsymbol": sym,
+                "fund_name": fund_name,
+                "quantity": h.get("quantity", 0),
+                "average_price": h.get("average_price", 0),
+                "last_price": h.get("last_price", 0),
+                "pnl": h.get("pnl", 0),
+                "isin": h.get("isin", ""),
+            })
     
     return jsonify({"funds": mf_funds})
 
@@ -1167,7 +1183,7 @@ def mf_nav_history(symbol):
     # Get period from query params (default 1 year)
     period = request.args.get("period", "1y")
     
-    # Get the ISIN and fund name from cached holdings
+    # Get the ISIN and fund name from cached holdings or live fetch
     db.init_db()
     today = date.today()
     cached = db.get_cached_day_on_or_before(today)
@@ -1175,17 +1191,27 @@ def mf_nav_history(symbol):
     isin = None
     fund_name = symbol
     current_nav = 0
+    mf_holdings = []
+    
+    # Try cache first
     if cached:
         try:
             mf_holdings = json.loads(cached.get("mf_holdings_json") or "[]")
-            for h in mf_holdings:
-                if h.get("tradingsymbol") == symbol:
-                    isin = h.get("isin", "")
-                    fund_name = h.get("fund", "") or symbol
-                    current_nav = float(h.get("last_price", 0))
-                    break
         except (json.JSONDecodeError, TypeError):
             pass
+    
+    # If no cached MF holdings, fetch live
+    if not mf_holdings:
+        mf_holdings_live, _ = kite_api.fetch_mf_holdings(session)
+        if mf_holdings_live:
+            mf_holdings = mf_holdings_live
+    
+    for h in mf_holdings:
+        if h.get("tradingsymbol") == symbol:
+            isin = h.get("isin", "")
+            fund_name = h.get("fund", "") or symbol
+            current_nav = float(h.get("last_price", 0))
+            break
     
     # Calculate date range based on period
     period_days = {
@@ -1198,15 +1224,34 @@ def mf_nav_history(symbol):
     data_source = "none"
     scheme_code = None
     
+    log.info(f"MF NAV request: symbol={symbol}, isin={isin}, period={period}")
+    
     # Method 1: Try to get scheme code from AMFI and fetch from mfapi.in
     if isin:
         scheme_map = _get_amfi_scheme_map()
         if isin in scheme_map:
             scheme_code = scheme_map[isin]['code']
             log.info("Found scheme code %s for ISIN %s", scheme_code, isin)
-            nav_data = _fetch_mf_nav_history_mfapi(scheme_code, start_date, today)
-            if nav_data:
-                data_source = "mfapi"
+            
+            # Check cache first (valid for 1 day)
+            cache_info = db.get_nav_cache_info(scheme_code)
+            if cache_info:
+                cached_at = datetime.fromisoformat(cache_info["cached_at"]) if cache_info.get("cached_at") else None
+                cache_age_hours = (datetime.now() - cached_at).total_seconds() / 3600 if cached_at else 999
+                if cache_age_hours < 24:
+                    nav_data = db.get_cached_nav(scheme_code, start_date)
+                    if nav_data:
+                        data_source = "cache"
+                        log.info(f"Using cached NAV data: {len(nav_data)} points, cached {cache_age_hours:.1f}h ago")
+            
+            # Fetch fresh if no cache or stale
+            if not nav_data:
+                nav_data = _fetch_mf_nav_history_mfapi(scheme_code, start_date, today)
+                if nav_data:
+                    data_source = "mfapi"
+                    # Save to cache
+                    db.save_nav_cache(scheme_code, nav_data)
+                    log.info(f"Fetched and cached {len(nav_data)} NAV points from mfapi")
     
     # Method 2: Try mftool with scheme codes lookup
     if not nav_data:
@@ -1266,8 +1311,12 @@ def mf_nav_history(symbol):
             data_source = "db_cache"
     
     # Add debug info
-    log.info("MF NAV History for %s: source=%s, points=%d, scheme_code=%s", 
-             symbol, data_source, len(nav_data), scheme_code)
+    if nav_data:
+        log.info("MF NAV History for %s: source=%s, points=%d, scheme_code=%s",
+                 symbol, data_source, len(nav_data), scheme_code)
+    else:
+        log.warning("MF NAV History for %s: NO DATA. isin=%s, scheme_code=%s, fund_name=%s",
+                    symbol, isin, scheme_code, fund_name)
     
     # Calculate statistics
     stats = {}
@@ -1338,7 +1387,7 @@ def mf_nav_history(symbol):
     return jsonify({
         "symbol": symbol,
         "fund_name": fund_name,
-        "nav_history": nav_data,
+        "nav_data": nav_data,
         "stats": stats,
         "data_source": data_source,
         "scheme_code": scheme_code,
