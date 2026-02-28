@@ -751,12 +751,14 @@ def performance_data():
                     if len(before):
                         nifty50_prices[d_str] = float(before.iloc[-1]["Close"])
         
-        # Nifty Next 50: ^NSMIDCP
-        ticker_next50 = yf.Ticker("^NSMIDCP")
-        hist_next50 = ticker_next50.history(start=min_d - timedelta(days=7), end=max_d + timedelta(days=1), auto_adjust=True)
-        if hist_next50.empty:
-            ticker_next50 = yf.Ticker("NIFTYJR.NS")
+        # Nifty Next 50: Try multiple tickers
+        # NIFTY_NEXT50.NS or use Junior Nifty ETF as proxy
+        for nn50_ticker in ["^NSEMDCP50", "NIFTYJR.NS", "JUNIORBEES.NS"]:
+            ticker_next50 = yf.Ticker(nn50_ticker)
             hist_next50 = ticker_next50.history(start=min_d - timedelta(days=7), end=max_d + timedelta(days=1), auto_adjust=True)
+            if not hist_next50.empty:
+                log.info(f"Using {nn50_ticker} for Nifty Next 50 data")
+                break
         
         if not hist_next50.empty:
             for d_str in dates:
@@ -824,22 +826,44 @@ def performance_data():
     last_n50 = chart_data[-1]["nifty50_value"]
     last_nn50 = chart_data[-1]["niftynext50_value"]
     
-    def calc_return_vs_cost(current_value, cost):
-        if cost and cost > 0 and current_value is not None:
-            return round((current_value - cost) / cost * 100, 2)
+    # Calculate returns properly
+    # Portfolio return: (final_value - total_invested) / total_invested
+    # Index return: Simple price change from first to last date
+    
+    first_value = portfolio_data[0]["value"]
+    first_n50_price = nifty50_prices.get(dates[0])
+    last_n50_price = nifty50_prices.get(dates[-1])
+    first_nn50_price = niftynext50_prices.get(dates[0])
+    last_nn50_price = niftynext50_prices.get(dates[-1])
+    
+    def calc_pct_change(start, end):
+        if start and end and start > 0:
+            return round((end - start) / start * 100, 2)
         return None
     
+    # Portfolio absolute return (value - cost) / cost
+    portfolio_return_pct = calc_pct_change(total_invested, last_value) if total_invested > 0 else None
+    
+    # Index returns: simple price appreciation over the period
+    nifty50_return_pct = calc_pct_change(first_n50_price, last_n50_price)
+    niftynext50_return_pct = calc_pct_change(first_nn50_price, last_nn50_price)
+    
+    log.info(f"Performance: invested={total_invested:.0f}, portfolio={last_value:.0f} ({portfolio_return_pct}%)")
+    log.info(f"Nifty50: {first_n50_price} -> {last_n50_price} ({nifty50_return_pct}%)")
+    log.info(f"NiftyNext50: {first_nn50_price} -> {last_nn50_price} ({niftynext50_return_pct}%)")
+    log.info(f"Date range: {dates[0]} to {dates[-1]}, {len(dates)} data points")
+
     return jsonify({
         "data": chart_data,
         "summary": {
             "start_date": dates[0],
             "end_date": dates[-1],
             "portfolio_end": round(last_value, 2),
-            "portfolio_return_pct": calc_return_vs_cost(last_value, total_invested),
+            "portfolio_return_pct": portfolio_return_pct,
             "nifty50_end": round(last_n50, 2) if last_n50 else None,
-            "nifty50_return_pct": calc_return_vs_cost(last_n50, total_invested),
+            "nifty50_return_pct": nifty50_return_pct,
             "niftynext50_end": round(last_nn50, 2) if last_nn50 else None,
-            "niftynext50_return_pct": calc_return_vs_cost(last_nn50, total_invested),
+            "niftynext50_return_pct": niftynext50_return_pct,
             "total_invested": round(total_invested, 2),
         }
     })

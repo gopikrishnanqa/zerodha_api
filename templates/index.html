@@ -443,6 +443,31 @@
       color: var(--accent);
       background: var(--card-blue);
     }
+    .period-btn {
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--fg);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .period-btn:hover {
+      background: var(--card-blue);
+      border-color: var(--accent);
+    }
+    .period-btn.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .period-btn.disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      background: #e5e7eb;
+    }
     .page { display: none; }
     .page.active { display: block; }
     .checklist-period { margin-bottom: 32px; }
@@ -613,6 +638,7 @@
       font-weight: 600;
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div class="container">
@@ -641,11 +667,13 @@
         <div class="nav-dropdown-menu">
           <a href="/stock-ledger" data-page="stock-ledger">Stock Ledger</a>
           <a href="/mf-ledger" data-page="mf-ledger">MF Ledger</a>
+          <a href="/mf-dip" data-page="mf-dip">MF Dip Points</a>
         </div>
       </div>
       <div class="nav-dropdown">
         <span class="nav-dropdown-trigger">Tools ▾</span>
         <div class="nav-dropdown-menu">
+          <a href="/tools" data-page="tools">Tools & Links</a>
           <a href="/monthly" data-page="monthly">Monthly Summary</a>
           <a href="/weekly" data-page="weekly">Weekly Summary</a>
           <a href="/db" data-page="db">DB View</a>
@@ -701,6 +729,14 @@
 
     <div id="page-checklist" class="page">
       <div id="checklist-content" class="card" style="padding: 20px;"></div>
+    </div>
+
+    <div id="page-mf-dip" class="page">
+      <div id="mf-dip-content" class="card" style="padding: 16px;"></div>
+    </div>
+
+    <div id="page-tools" class="page">
+      <div id="tools-content" class="card" style="padding: 16px;"></div>
     </div>
 
     <footer>
@@ -1116,6 +1152,8 @@
       else if (pageId === 'stock-ledger') loadStockLedgerPage();
       else if (pageId === 'mf-ledger') loadMfLedgerPage();
       else if (pageId === 'performance') loadPerformancePage();
+      else if (pageId === 'mf-dip') loadMfDipPage();
+      else if (pageId === 'tools') loadToolsPage();
     }
 
     async function loadPortfolioSummary(forceRefresh) {
@@ -2190,6 +2228,11 @@
       }
     }
 
+    let performanceChart = null;
+    let performanceAllData = [];
+    let performanceSummary = {};
+    let performanceActivePeriod = 'all';
+
     async function loadPerformancePage() {
       const el = document.getElementById('performance-content');
       if (!el) return;
@@ -2198,48 +2241,289 @@
         const r = await fetch('/api/performance-data', { credentials: 'same-origin', cache: 'no-store' });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || 'Failed to load');
-        const data = d.portfolio_data || [];
-        const summary = d.summary || {};
-        if (data.length === 0) {
+        performanceAllData = d.data || [];
+        performanceSummary = d.summary || {};
+        if (performanceAllData.length === 0) {
           el.innerHTML = '<p class="text-muted">No performance data available. Save portfolio snapshots over time to see performance comparison with Nifty 50 and Nifty Next 50.</p>';
           return;
         }
-        const pct = (v) => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '–';
-        const pctCls = (v) => v >= 0 ? 'pct-up' : 'pct-down';
-        let html = '<h3>Portfolio Performance vs Indices</h3>' +
-          '<p class="text-muted" style="margin-bottom: 16px;">Compares your portfolio growth with Nifty 50 and Nifty Next 50 (simulated as if you invested the same amounts in these indices).</p>' +
-          '<div class="summary-cards" style="margin-bottom: 20px;">' +
-          '<div class="summary-card"><div class="label">Your Portfolio</div><div class="value ' + pctCls(summary.portfolio_return_pct) + '">' + pct(summary.portfolio_return_pct) + '</div></div>' +
-          '<div class="summary-card"><div class="label">Nifty 50</div><div class="value ' + pctCls(summary.nifty50_return_pct) + '">' + pct(summary.nifty50_return_pct) + '</div></div>' +
-          '<div class="summary-card"><div class="label">Nifty Next 50</div><div class="value ' + pctCls(summary.niftynext50_return_pct) + '">' + pct(summary.niftynext50_return_pct) + '</div></div>' +
-          '</div>' +
-          '<canvas id="performance-chart" style="max-height: 400px;"></canvas>';
-        el.innerHTML = html;
-        
-        // Render chart
-        const ctx = document.getElementById('performance-chart').getContext('2d');
-        new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels: data.map(d => d.date),
-            datasets: [
-              { label: 'Portfolio', data: data.map(d => d.portfolio_value), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.3 },
-              { label: 'Nifty 50 (simulated)', data: data.map(d => d.nifty50_value), borderColor: '#10b981', fill: false, tension: 0.3 },
-              { label: 'Nifty Next 50 (simulated)', data: data.map(d => d.niftynext50_value), borderColor: '#f59e0b', fill: false, tension: 0.3 }
-            ]
-          },
-          options: {
-            responsive: true,
-            plugins: { legend: { position: 'top' } },
-            scales: {
-              x: { display: true },
-              y: { display: true, beginAtZero: false }
-            }
-          }
-        });
+        renderPerformancePage();
       } catch (e) {
         el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
       }
+    }
+
+    function filterPerformanceData(period) {
+      if (period === 'all' || performanceAllData.length === 0) return performanceAllData;
+      const now = new Date();
+      let cutoff = new Date();
+      if (period === '1m') cutoff.setMonth(now.getMonth() - 1);
+      else if (period === '3m') cutoff.setMonth(now.getMonth() - 3);
+      else if (period === '6m') cutoff.setMonth(now.getMonth() - 6);
+      else if (period === '1y') cutoff.setFullYear(now.getFullYear() - 1);
+      else if (period === '5y') cutoff.setFullYear(now.getFullYear() - 5);
+      const cutoffStr = cutoff.toISOString().slice(0, 10);
+      return performanceAllData.filter(d => d.date >= cutoffStr);
+    }
+
+    function calcPerformanceSummary(data, useBackendSummary) {
+      if (useBackendSummary && performanceSummary) {
+        return performanceSummary;
+      }
+      if (data.length < 2) return { portfolio_return_pct: null, nifty50_return_pct: null, niftynext50_return_pct: null };
+      const first = data[0], last = data[data.length - 1];
+      
+      const pctChange = (start, end) => {
+        if (start && end && start > 0) return ((end - start) / start) * 100;
+        return null;
+      };
+      
+      return {
+        portfolio_return_pct: pctChange(first.portfolio_value, last.portfolio_value),
+        nifty50_return_pct: pctChange(first.nifty50_price, last.nifty50_price),
+        niftynext50_return_pct: pctChange(first.niftynext50_price, last.niftynext50_price)
+      };
+    }
+
+    function renderPerformancePage() {
+      const el = document.getElementById('performance-content');
+      const allData = performanceAllData;
+      const data = filterPerformanceData(performanceActivePeriod);
+      const useBackend = performanceActivePeriod === 'all';
+      const summary = calcPerformanceSummary(data, useBackend);
+      const pct = (v) => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '–';
+      const pctCls = (v) => v >= 0 ? 'pct-up' : 'pct-down';
+
+      // Calculate actual data range
+      const firstDate = allData.length > 0 ? allData[0].date : null;
+      const lastDate = allData.length > 0 ? allData[allData.length - 1].date : null;
+      const dataMonths = firstDate && lastDate ? Math.round((new Date(lastDate) - new Date(firstDate)) / (30 * 24 * 60 * 60 * 1000)) : 0;
+      
+      // Only show periods that have meaningful data
+      const periods = [
+        { id: '1m', label: '1M', months: 1 },
+        { id: '3m', label: '3M', months: 3 },
+        { id: '6m', label: '6M', months: 6 },
+        { id: '1y', label: '1Y', months: 12 },
+        { id: '5y', label: '5Y', months: 60 },
+        { id: 'all', label: 'All', months: 0 }
+      ];
+      
+      // Check if selected period has less data than requested
+      const selectedPeriod = periods.find(p => p.id === performanceActivePeriod);
+      const periodData = filterPerformanceData(performanceActivePeriod);
+      const allDataSameAsFiltered = periodData.length === allData.length && performanceActivePeriod !== 'all';
+      const insufficientData = selectedPeriod && selectedPeriod.months > 0 && dataMonths < selectedPeriod.months;
+      
+      const periodBtns = periods.map(p => {
+        const disabled = p.months > 0 && dataMonths < p.months;
+        return '<button class="period-btn' + (performanceActivePeriod === p.id ? ' active' : '') + (disabled ? ' disabled' : '') + '" data-period="' + p.id + '"' + (disabled ? ' title="Not enough data"' : '') + '>' + p.label + '</button>';
+      }).join('');
+
+      let html = '<h3>Portfolio Performance vs Indices</h3>';
+      
+      // Show data availability notice at the top
+      if (allData.length > 0) {
+        html += '<div class="card" style="padding: 12px; margin-bottom: 16px; background: #f0f9ff; border-left: 4px solid #3b82f6;">' +
+          '<strong>Data available:</strong> ' + firstDate + ' to ' + lastDate + ' (' + allData.length + ' snapshots, ~' + dataMonths + ' months)<br>' +
+          '<span class="text-muted" style="font-size: 12px;">The app saves daily snapshots when running. More data = better historical comparison.</span>' +
+          '</div>';
+      }
+      
+      html += '<p class="text-muted" style="margin-bottom: 16px;">Compares your portfolio value change with Nifty 50 and Nifty Next 50 index price change.</p>' +
+        '<div class="period-filter" style="margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap;">' + periodBtns + '</div>';
+      
+      if (insufficientData || allDataSameAsFiltered) {
+        html += '<div class="card" style="padding: 16px; margin-bottom: 16px; background: #fffbeb; border-left: 4px solid #f59e0b;">' +
+          '<strong>Insufficient data for ' + selectedPeriod.label + '</strong><br>' +
+          'You requested ' + selectedPeriod.label + ' but only have ~' + dataMonths + ' months of data. Showing all available data instead.' +
+          '</div>';
+      }
+      
+      const startDate = data.length > 0 ? data[0].date : '–';
+      const endDate = data.length > 0 ? data[data.length - 1].date : '–';
+      const numPoints = data.length;
+      
+      html += '<p class="text-muted" style="margin-bottom: 8px; font-size: 13px;"><strong>Period:</strong> ' + startDate + ' → ' + endDate + ' (' + numPoints + ' data points)</p>' +
+        '<div class="summary-cards" style="margin-bottom: 20px;">' +
+        '<div class="summary-card"><div class="label">Your Portfolio</div><div class="value ' + pctCls(summary.portfolio_return_pct) + '">' + pct(summary.portfolio_return_pct) + '</div></div>' +
+        '<div class="summary-card"><div class="label">Nifty 50</div><div class="value ' + pctCls(summary.nifty50_return_pct) + '">' + pct(summary.nifty50_return_pct) + '</div></div>' +
+        '<div class="summary-card"><div class="label">Nifty Next 50</div><div class="value ' + pctCls(summary.niftynext50_return_pct) + '">' + pct(summary.niftynext50_return_pct) + '</div></div>' +
+        '</div>' +
+        '<canvas id="performance-chart" style="max-height: 400px;"></canvas>';
+      el.innerHTML = html;
+
+      el.querySelectorAll('.period-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          performanceActivePeriod = btn.dataset.period;
+          renderPerformancePage();
+        });
+      });
+
+      if (performanceChart) { performanceChart.destroy(); performanceChart = null; }
+      const ctx = document.getElementById('performance-chart').getContext('2d');
+      
+      // Normalize all values to percentage change from first data point (base = 100)
+      const firstPortfolio = data[0]?.portfolio_value || 1;
+      const firstN50 = data[0]?.nifty50_price || 1;
+      const firstNN50 = data[0]?.niftynext50_price || 1;
+      
+      const normalizedPortfolio = data.map(d => ((d.portfolio_value / firstPortfolio) - 1) * 100);
+      const normalizedN50 = data.map(d => d.nifty50_price ? ((d.nifty50_price / firstN50) - 1) * 100 : null);
+      const normalizedNN50 = data.map(d => d.niftynext50_price ? ((d.niftynext50_price / firstNN50) - 1) * 100 : null);
+      
+      performanceChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.map(d => d.date),
+          datasets: [
+            { label: 'Portfolio', data: normalizedPortfolio, borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.3 },
+            { label: 'Nifty 50', data: normalizedN50, borderColor: '#10b981', fill: false, tension: 0.3 },
+            { label: 'Nifty Next 50', data: normalizedNN50, borderColor: '#f59e0b', fill: false, tension: 0.3 }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: { 
+            legend: { position: 'top' },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => ctx.dataset.label + ': ' + (ctx.parsed.y >= 0 ? '+' : '') + ctx.parsed.y.toFixed(2) + '%'
+              }
+            }
+          },
+          scales: {
+            x: { display: true },
+            y: { 
+              display: true,
+              ticks: {
+                callback: (v) => (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
+              }
+            }
+          }
+        }
+      });
+    }
+
+    async function loadMfDipPage() {
+      const el = document.getElementById('mf-dip-content');
+      if (!el) return;
+      el.innerHTML = '<p>Loading mutual funds...</p>';
+      try {
+        const r = await fetch('/api/mf-list', { credentials: 'same-origin' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Failed to load MF list');
+        const funds = d.funds || [];
+        if (funds.length === 0) {
+          el.innerHTML = '<p class="text-muted">No mutual funds in your portfolio.</p>';
+          return;
+        }
+        const options = funds.map(f => '<option value="' + f.symbol + '">' + f.name + '</option>').join('');
+        el.innerHTML = '<h3>MF Dip Analysis</h3>' +
+          '<p class="text-muted">Select a mutual fund to view NAV history and identify dip points for investment opportunities.</p>' +
+          '<div style="margin: 16px 0;">' +
+          '<select id="mf-dip-select" style="padding: 8px; min-width: 300px;">' + options + '</select>' +
+          '<div class="period-filter" style="margin-top: 12px; display: flex; gap: 8px;">' +
+          '<button class="period-btn active" data-period="1m">1M</button>' +
+          '<button class="period-btn" data-period="3m">3M</button>' +
+          '<button class="period-btn" data-period="6m">6M</button>' +
+          '<button class="period-btn" data-period="1y">1Y</button>' +
+          '<button class="period-btn" data-period="2y">2Y</button>' +
+          '<button class="period-btn" data-period="all">All</button>' +
+          '</div></div>' +
+          '<div id="mf-dip-chart-area"></div>';
+        const select = document.getElementById('mf-dip-select');
+        const periodBtns = el.querySelectorAll('.period-btn');
+        let activePeriod = '1m';
+        const loadChart = () => loadMfDipChart(select.value, activePeriod);
+        select.addEventListener('change', loadChart);
+        periodBtns.forEach(btn => btn.addEventListener('click', () => {
+          periodBtns.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          activePeriod = btn.dataset.period;
+          loadChart();
+        }));
+        loadChart();
+      } catch (e) {
+        el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+      }
+    }
+
+    let mfDipChart = null;
+    async function loadMfDipChart(symbol, period) {
+      const area = document.getElementById('mf-dip-chart-area');
+      if (!area) return;
+      area.innerHTML = '<p>Loading NAV data...</p>';
+      try {
+        const r = await fetch('/api/mf-nav-history/' + encodeURIComponent(symbol) + '?period=' + period, { credentials: 'same-origin' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Failed to load NAV data');
+        const navData = d.nav_data || [];
+        const stats = d.stats || {};
+        if (navData.length === 0) {
+          area.innerHTML = '<p class="text-muted">No NAV data available for this fund.</p>';
+          return;
+        }
+        const fmt = (v) => v != null ? v.toFixed(2) : '–';
+        const dipPct = stats.dip_from_max_pct != null ? stats.dip_from_max_pct.toFixed(1) + '%' : '–';
+        const posInRange = stats.position_in_range != null ? stats.position_in_range.toFixed(0) + '%' : '–';
+        const dipClass = stats.position_in_range != null && stats.position_in_range <= 20 ? 'pct-up' : (stats.position_in_range > 80 ? 'pct-down' : '');
+        area.innerHTML = '<div class="summary-cards" style="margin-bottom: 16px;">' +
+          '<div class="summary-card"><div class="label">Current NAV</div><div class="value">' + fmt(stats.current) + '</div></div>' +
+          '<div class="summary-card"><div class="label">Min</div><div class="value">' + fmt(stats.min) + '</div></div>' +
+          '<div class="summary-card"><div class="label">Max</div><div class="value">' + fmt(stats.max) + '</div></div>' +
+          '<div class="summary-card"><div class="label">Avg</div><div class="value">' + fmt(stats.avg) + '</div></div>' +
+          '<div class="summary-card"><div class="label">Dip from Max</div><div class="value pct-down">' + dipPct + '</div></div>' +
+          '<div class="summary-card"><div class="label">Position in Range</div><div class="value ' + dipClass + '">' + posInRange + '</div></div>' +
+          '</div>' +
+          '<canvas id="mf-dip-canvas" style="max-height: 350px;"></canvas>' +
+          '<div id="mf-dip-recommendation" style="margin-top: 16px;"></div>';
+
+        const recEl = document.getElementById('mf-dip-recommendation');
+        if (stats.position_in_range != null) {
+          let advice = '', cls = '';
+          if (stats.position_in_range <= 20) { advice = 'NAV is in the bottom 20% of its range - good opportunity for bulk investment.'; cls = 'pct-up'; }
+          else if (stats.position_in_range <= 40) { advice = 'NAV is below average - consider gradual investment.'; cls = 'pct-up'; }
+          else if (stats.position_in_range <= 60) { advice = 'NAV is near average - continue SIP as usual.'; cls = ''; }
+          else if (stats.position_in_range <= 80) { advice = 'NAV is above average - consider pausing lump sum investments.'; cls = 'pct-down'; }
+          else { advice = 'NAV is near its high - not ideal for new investments.'; cls = 'pct-down'; }
+          recEl.innerHTML = '<div class="card" style="padding: 12px; background: #f8f9fa;"><strong>Recommendation:</strong> <span class="' + cls + '">' + advice + '</span></div>';
+        }
+
+        if (mfDipChart) { mfDipChart.destroy(); mfDipChart = null; }
+        const ctx = document.getElementById('mf-dip-canvas').getContext('2d');
+        mfDipChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: navData.map(n => n.date),
+            datasets: [
+              { label: 'NAV', data: navData.map(n => n.nav), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.2 },
+              { label: 'Min', data: navData.map(() => stats.min), borderColor: '#ef4444', borderDash: [5, 5], pointRadius: 0 },
+              { label: 'Avg', data: navData.map(() => stats.avg), borderColor: '#6b7280', borderDash: [3, 3], pointRadius: 0 },
+              { label: 'Max', data: navData.map(() => stats.max), borderColor: '#10b981', borderDash: [5, 5], pointRadius: 0 }
+            ]
+          },
+          options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: false } } }
+        });
+      } catch (e) {
+        area.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+      }
+    }
+
+    function loadToolsPage() {
+      const el = document.getElementById('tools-content');
+      if (!el) return;
+      el.innerHTML = '<h3>Tools & Links</h3>' +
+        '<div class="tools-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; margin-top: 16px;">' +
+        '<a href="https://console.zerodha.com" target="_blank" class="tool-link card" style="padding: 16px; text-decoration: none; color: inherit;"><strong>Zerodha Console</strong><p class="text-muted">Reports, P&L, tax statements</p></a>' +
+        '<a href="https://kite.zerodha.com" target="_blank" class="tool-link card" style="padding: 16px; text-decoration: none; color: inherit;"><strong>Kite Web</strong><p class="text-muted">Trading platform</p></a>' +
+        '<a href="https://coin.zerodha.com" target="_blank" class="tool-link card" style="padding: 16px; text-decoration: none; color: inherit;"><strong>Coin</strong><p class="text-muted">Mutual funds platform</p></a>' +
+        '<a href="https://www.valueresearchonline.com" target="_blank" class="tool-link card" style="padding: 16px; text-decoration: none; color: inherit;"><strong>Value Research</strong><p class="text-muted">Fund analysis & ratings</p></a>' +
+        '<a href="https://www.screener.in" target="_blank" class="tool-link card" style="padding: 16px; text-decoration: none; color: inherit;"><strong>Screener.in</strong><p class="text-muted">Stock screening & analysis</p></a>' +
+        '<a href="https://www.tickertape.in" target="_blank" class="tool-link card" style="padding: 16px; text-decoration: none; color: inherit;"><strong>Tickertape</strong><p class="text-muted">Stock & MF analysis</p></a>' +
+        '<a href="https://www.moneycontrol.com" target="_blank" class="tool-link card" style="padding: 16px; text-decoration: none; color: inherit;"><strong>Moneycontrol</strong><p class="text-muted">News & market data</p></a>' +
+        '<a href="https://www.investing.com" target="_blank" class="tool-link card" style="padding: 16px; text-decoration: none; color: inherit;"><strong>Investing.com</strong><p class="text-muted">Global market data</p></a>' +
+        '</div>';
     }
 
     function pathForPage(pageId) { return pageId === 'dashboard' ? '/' : '/' + pageId; }
@@ -2247,7 +2531,7 @@
       const p = (pathname || '/').replace(/\/$/, '') || '/';
       if (p === '/') return 'dashboard';
       const page = p.slice(1);
-      return ['holdings', 'monthly', 'weekly', 'db', 'by-date', 'checklist', 'stock-ledger', 'mf-ledger', 'performance'].includes(page) ? page : 'dashboard';
+      return ['holdings', 'monthly', 'weekly', 'db', 'by-date', 'checklist', 'stock-ledger', 'mf-ledger', 'performance', 'mf-dip', 'tools'].includes(page) ? page : 'dashboard';
     }
     document.querySelectorAll('#main-nav a').forEach(a => {
       a.addEventListener('click', (e) => {
