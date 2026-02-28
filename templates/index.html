@@ -394,6 +394,55 @@
     }
     .nav a:hover { color: var(--text); background: #e2e8f0; }
     .nav a.active { color: var(--accent); background: var(--card-blue); }
+    .nav-dropdown {
+      position: relative;
+    }
+    .nav-dropdown-trigger {
+      padding: 8px 14px;
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-block;
+    }
+    .nav-dropdown-trigger:hover {
+      color: var(--text);
+      background: #e2e8f0;
+    }
+    .nav-dropdown.has-active .nav-dropdown-trigger {
+      color: var(--accent);
+    }
+    .nav-dropdown-menu {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      min-width: 160px;
+      z-index: 100;
+      padding: 4px 0;
+    }
+    .nav-dropdown:hover .nav-dropdown-menu {
+      display: block;
+    }
+    .nav-dropdown-menu a {
+      display: block;
+      padding: 10px 16px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .nav-dropdown-menu a:hover {
+      background: var(--bg);
+    }
+    .nav-dropdown-menu a.active {
+      color: var(--accent);
+      background: var(--card-blue);
+    }
     .page { display: none; }
     .page.active { display: block; }
     .checklist-period { margin-bottom: 32px; }
@@ -587,12 +636,22 @@
       <a href="/" data-page="dashboard">Dashboard</a>
       <a href="/holdings" data-page="holdings">Stocks &amp; MF</a>
       <a href="/performance" data-page="performance">Performance</a>
-      <a href="/stock-ledger" data-page="stock-ledger">Stock Ledger</a>
-      <a href="/mf-ledger" data-page="mf-ledger">MF Ledger</a>
-      <a href="/monthly" data-page="monthly">Monthly Summary</a>
-      <a href="/weekly" data-page="weekly">Weekly Summary</a>
-      <a href="/db" data-page="db">DB View</a>
-      <a href="/by-date" data-page="by-date">By Date</a>
+      <div class="nav-dropdown">
+        <span class="nav-dropdown-trigger">Ledger ▾</span>
+        <div class="nav-dropdown-menu">
+          <a href="/stock-ledger" data-page="stock-ledger">Stock Ledger</a>
+          <a href="/mf-ledger" data-page="mf-ledger">MF Ledger</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <span class="nav-dropdown-trigger">Tools ▾</span>
+        <div class="nav-dropdown-menu">
+          <a href="/monthly" data-page="monthly">Monthly Summary</a>
+          <a href="/weekly" data-page="weekly">Weekly Summary</a>
+          <a href="/db" data-page="db">DB View</a>
+          <a href="/by-date" data-page="by-date">By Date</a>
+        </div>
+      </div>
       <a href="/checklist" data-page="checklist">Checklist</a>
     </nav>
 
@@ -1043,6 +1102,10 @@
     function showPage(pageId) {
       document.querySelectorAll('.page').forEach(p => { p.classList.remove('active'); });
       document.querySelectorAll('#main-nav a').forEach(a => { a.classList.toggle('active', a.dataset.page === pageId); });
+      document.querySelectorAll('.nav-dropdown').forEach(dd => {
+        const hasActive = dd.querySelector('a.active') !== null;
+        dd.classList.toggle('has-active', hasActive);
+      });
       const el = document.getElementById('page-' + pageId);
       if (el) el.classList.add('active');
       if (pageId === 'monthly') loadMonthlyPage();
@@ -1050,6 +1113,9 @@
       else if (pageId === 'db') loadDbPage();
       else if (pageId === 'by-date') loadByDatePage();
       else if (pageId === 'checklist') loadChecklistPage();
+      else if (pageId === 'stock-ledger') loadStockLedgerPage();
+      else if (pageId === 'mf-ledger') loadMfLedgerPage();
+      else if (pageId === 'performance') loadPerformancePage();
     }
 
     async function loadPortfolioSummary(forceRefresh) {
@@ -2067,12 +2133,121 @@
       });
     }
 
+    async function loadStockLedgerPage() {
+      const el = document.getElementById('stock-ledger-content');
+      if (!el) return;
+      el.innerHTML = '<p>Loading Stock Ledger...</p>';
+      try {
+        const r = await fetch('/api/ledger/equity', { credentials: 'same-origin', cache: 'no-store' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Failed to load');
+        const rows = d.rows || [];
+        if (rows.length === 0) {
+          el.innerHTML = '<p class="text-muted">No stock transactions found. Transactions are captured when you run this app on days you trade.</p>';
+          return;
+        }
+        let html = '<h3>Stock Transactions (' + rows.length + ')</h3>' +
+          '<div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr>' +
+          '<th>Date</th><th>Type</th><th>Symbol</th><th>Qty</th><th>Price</th><th>Amount</th>' +
+          '</tr></thead><tbody>';
+        rows.forEach(r => {
+          const cls = r.type === 'BUY' ? 'pct-up' : 'pct-down';
+          html += '<tr><td>' + r.date + '</td><td class="' + cls + '">' + r.type + '</td><td>' + r.tradingsymbol + '</td><td>' + r.quantity + '</td><td>' + fmt(r.price) + '</td><td>' + fmt(r.amount) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+        el.innerHTML = html;
+      } catch (e) {
+        el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+      }
+    }
+
+    async function loadMfLedgerPage() {
+      const el = document.getElementById('mf-ledger-content');
+      if (!el) return;
+      el.innerHTML = '<p>Loading MF Ledger...</p>';
+      try {
+        const r = await fetch('/api/ledger/mf', { credentials: 'same-origin', cache: 'no-store' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Failed to load');
+        const rows = d.rows || [];
+        if (rows.length === 0) {
+          el.innerHTML = '<p class="text-muted">No mutual fund transactions found. Transactions are captured when you run this app on days you trade.</p>';
+          return;
+        }
+        let html = '<h3>Mutual Fund Transactions (' + rows.length + ')</h3>' +
+          '<div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr>' +
+          '<th>Date</th><th>Type</th><th>Fund</th><th>Units</th><th>NAV</th><th>Amount</th>' +
+          '</tr></thead><tbody>';
+        rows.forEach(r => {
+          const cls = r.type === 'BUY' ? 'pct-up' : 'pct-down';
+          const fundName = r.fund_name || r.tradingsymbol || '–';
+          html += '<tr><td>' + r.date + '</td><td class="' + cls + '">' + r.type + '</td><td title="' + fundName + '">' + (fundName.length > 40 ? fundName.slice(0, 37) + '...' : fundName) + '</td><td>' + (r.quantity || 0).toFixed(3) + '</td><td>' + fmt(r.price) + '</td><td>' + fmt(r.amount) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+        el.innerHTML = html;
+      } catch (e) {
+        el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+      }
+    }
+
+    async function loadPerformancePage() {
+      const el = document.getElementById('performance-content');
+      if (!el) return;
+      el.innerHTML = '<p>Loading performance data...</p>';
+      try {
+        const r = await fetch('/api/performance-data', { credentials: 'same-origin', cache: 'no-store' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Failed to load');
+        const data = d.portfolio_data || [];
+        const summary = d.summary || {};
+        if (data.length === 0) {
+          el.innerHTML = '<p class="text-muted">No performance data available. Save portfolio snapshots over time to see performance comparison with Nifty 50 and Nifty Next 50.</p>';
+          return;
+        }
+        const pct = (v) => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '–';
+        const pctCls = (v) => v >= 0 ? 'pct-up' : 'pct-down';
+        let html = '<h3>Portfolio Performance vs Indices</h3>' +
+          '<p class="text-muted" style="margin-bottom: 16px;">Compares your portfolio growth with Nifty 50 and Nifty Next 50 (simulated as if you invested the same amounts in these indices).</p>' +
+          '<div class="summary-cards" style="margin-bottom: 20px;">' +
+          '<div class="summary-card"><div class="label">Your Portfolio</div><div class="value ' + pctCls(summary.portfolio_return_pct) + '">' + pct(summary.portfolio_return_pct) + '</div></div>' +
+          '<div class="summary-card"><div class="label">Nifty 50</div><div class="value ' + pctCls(summary.nifty50_return_pct) + '">' + pct(summary.nifty50_return_pct) + '</div></div>' +
+          '<div class="summary-card"><div class="label">Nifty Next 50</div><div class="value ' + pctCls(summary.niftynext50_return_pct) + '">' + pct(summary.niftynext50_return_pct) + '</div></div>' +
+          '</div>' +
+          '<canvas id="performance-chart" style="max-height: 400px;"></canvas>';
+        el.innerHTML = html;
+        
+        // Render chart
+        const ctx = document.getElementById('performance-chart').getContext('2d');
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: data.map(d => d.date),
+            datasets: [
+              { label: 'Portfolio', data: data.map(d => d.portfolio_value), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.3 },
+              { label: 'Nifty 50 (simulated)', data: data.map(d => d.nifty50_value), borderColor: '#10b981', fill: false, tension: 0.3 },
+              { label: 'Nifty Next 50 (simulated)', data: data.map(d => d.niftynext50_value), borderColor: '#f59e0b', fill: false, tension: 0.3 }
+            ]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { position: 'top' } },
+            scales: {
+              x: { display: true },
+              y: { display: true, beginAtZero: false }
+            }
+          }
+        });
+      } catch (e) {
+        el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+      }
+    }
+
     function pathForPage(pageId) { return pageId === 'dashboard' ? '/' : '/' + pageId; }
     function pageFromPathname(pathname) {
       const p = (pathname || '/').replace(/\/$/, '') || '/';
       if (p === '/') return 'dashboard';
       const page = p.slice(1);
-      return ['holdings', 'monthly', 'weekly', 'db', 'by-date', 'checklist'].includes(page) ? page : 'dashboard';
+      return ['holdings', 'monthly', 'weekly', 'db', 'by-date', 'checklist', 'stock-ledger', 'mf-ledger', 'performance'].includes(page) ? page : 'dashboard';
     }
     document.querySelectorAll('#main-nav a').forEach(a => {
       a.addEventListener('click', (e) => {

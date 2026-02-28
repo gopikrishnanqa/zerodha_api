@@ -65,6 +65,8 @@ def _migrate_data_to_data_dir():
 @app.route("/by-date")
 @app.route("/ledger-equity")
 @app.route("/ledger-mf")
+@app.route("/stock-ledger")
+@app.route("/mf-ledger")
 @app.route("/mf-dip")
 @app.route("/performance")
 @app.route("/tools")
