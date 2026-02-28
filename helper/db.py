@@ -32,8 +32,9 @@ def get_db():
 
 
 def init_db():
-    """Create tables: portfolio_daily (aggregates per day), holdings_equity_daily, holdings_mf_daily (one row per holding per day)."""
+    print(f"DEBUG: init_db using DB_PATH={DB_PATH}")
     conn = get_db()
+    print(f"DEBUG: Connected to DB")
     # One row per day: totals only (no big JSON blobs)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS portfolio_daily (
@@ -115,6 +116,24 @@ def init_db():
         )
     """)
 
+    # Transactions ledger
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS transactions (
+            id TEXT PRIMARY KEY,
+            date TEXT NOT NULL,
+            type TEXT NOT NULL,
+            instrument_type TEXT NOT NULL,
+            tradingsymbol TEXT NOT NULL,
+            exchange TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            price REAL NOT NULL,
+            amount REAL NOT NULL,
+            data_json TEXT,
+            created_at TEXT
+        )
+    """)
+    conn.commit()
+
     # Checklist: one row per period (month/year/quarter) and key (e.g. 2026-02, 2026, 2026-Q1)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS checklist (
@@ -127,6 +146,7 @@ def init_db():
             PRIMARY KEY (period_type, period_key)
         )
     """)
+    conn.commit()
 
     # Add mf_portfolio_cost if missing (for category-wise invested amount)
     try:
@@ -134,18 +154,23 @@ def init_db():
         conn.commit()
     except sqlite3.OperationalError:
         pass
+
     # Migrate old schema: if portfolio_daily has holdings_json, backfill holdings tables for each date
     try:
-        rows = conn.execute("SELECT date, holdings_json, mf_holdings_json FROM portfolio_daily").fetchall()
-        for row in rows:
-            hj = row["holdings_json"] if "holdings_json" in row.keys() else None
-            mj = row["mf_holdings_json"] if "mf_holdings_json" in row.keys() else None
-            if row["date"] and (hj or mj):
-                _migrate_holdings_from_json(conn, row["date"], hj or "[]", mj or "[]")
-        if rows:
+        rows = conn.execute("SELECT date FROM portfolio_daily LIMIT 1").fetchone()
+        if rows and "holdings_json" in rows.keys():
+            log.info("Starting holdings migration...")
+            rows = conn.execute("SELECT date, holdings_json, mf_holdings_json FROM portfolio_daily").fetchall()
+            for row in rows:
+                hj = row["holdings_json"]
+                mj = row["mf_holdings_json"]
+                if row["date"] and (hj or mj):
+                    _migrate_holdings_from_json(conn, row["date"], hj or "[]", mj or "[]")
             conn.commit()
+            log.info("Holdings migration complete.")
     except sqlite3.OperationalError:
         pass
+
     conn.close()
     ts = _turso_sync()
     if ts:
@@ -310,16 +335,21 @@ def get_cached_day(d: date) -> dict | None:
 
 
 def get_previous_date(d: date) -> date | None:
-    """Return the most recent stored date before d."""
+    """Return the most recent stored date before d, checking both daily and archive."""
     conn = get_db()
-    row = conn.execute(
-        "SELECT date FROM portfolio_daily WHERE date < ? ORDER BY date DESC LIMIT 1",
-        (d.isoformat(),)
-    ).fetchone()
+    # Check both tables and take the MAX date that is < d
+    query = """
+        SELECT MAX(date) as last_date FROM (
+            SELECT date FROM portfolio_daily WHERE date < ?
+            UNION ALL
+            SELECT date FROM portfolio_archive WHERE date < ?
+        )
+    """
+    row = conn.execute(query, (d.isoformat(), d.isoformat())).fetchone()
     conn.close()
-    if row is None:
+    if row is None or row["last_date"] is None:
         return None
-    return date.fromisoformat(row["date"])
+    return date.fromisoformat(row["last_date"])
 
 
 def get_cached_day_on_or_before(d: date) -> dict | None:
@@ -335,7 +365,154 @@ def get_cached_day_on_or_before(d: date) -> dict | None:
     return get_cached_day(date.fromisoformat(row["date"]))
 
 
+def _detect_transactions_from_holdings(conn, d: date, holdings: list, mf_holdings: list) -> list:
+    """Compare current holdings with previous day to detect implicit transactions."""
+    detected = []
+    today_str = d.isoformat()
+
+    # 1. Primary Detection: T1 holdings (Quantity - Realised Quantity)
+    # This catches buys from today/yesterday even without history.
+    for h in holdings:
+        qty = float(h.get("quantity") or 0)
+        realised = float(h.get("realised_quantity") or 0)
+        t1 = qty - realised
+        if t1 > 0.0001:
+            sym = h["tradingsymbol"]
+            log.info("Detected T1 hold for %s: %f", sym, t1)
+            detected.append({
+                "id": f"HOLDING_T1_{sym}_{today_str}",
+                "date": today_str,
+                "type": "BUY",
+                "instrument_type": "EQUITY",
+                "tradingsymbol": sym,
+                "exchange": h.get("exchange", "NSE"),
+                "quantity": t1,
+                "price": float(h.get("average_price") or 0),
+                "amount": t1 * float(h.get("average_price") or 0),
+            })
+
+    # 2. Secondary Detection: Database Diff (only if previous date is the IMMEDIATE preceding snap)
+    prev_date = get_previous_date(d)
+    is_recent = False
+    if prev_date:
+        days_diff = (d - prev_date).days
+        # Only diff if we have a very fresh snapshot (1-2 days max) 
+        # to avoid attributing old history changes to today.
+        if days_diff <= 2: 
+            is_recent = True
+        else:
+            log.info("Previous snapshot for %s is %d days old (%s). Skipping diff to avoid ghost trades.", today_str, days_diff, prev_date.isoformat())
+
+    if is_recent and prev_date:
+        pdate_str = prev_date.isoformat()
+        log.info("Performing archive-aware diff with %s", pdate_str)
+        
+        # Equity
+        prev_equity_rows = conn.execute(
+            "SELECT tradingsymbol, data_json FROM holdings_equity_daily WHERE date = ?", (pdate_str,)
+        ).fetchall()
+        if not prev_equity_rows:
+            prev_equity_rows = conn.execute(
+                "SELECT tradingsymbol, data_json FROM holdings_equity_archive WHERE date = ?", (pdate_str,)
+            ).fetchall()
+        prev_equity = {r["tradingsymbol"]: json.loads(r["data_json"]) for r in prev_equity_rows}
+
+        # MF
+        prev_mf_rows = conn.execute(
+            "SELECT tradingsymbol, folio, data_json FROM holdings_mf_daily WHERE date = ?", (pdate_str,)
+        ).fetchall()
+        if not prev_mf_rows:
+            prev_mf_rows = conn.execute(
+                "SELECT tradingsymbol, folio, data_json FROM holdings_mf_archive WHERE date = ?", (pdate_str,)
+            ).fetchall()
+        prev_mf = {(r["tradingsymbol"], r["folio"]): json.loads(r["data_json"]) for r in prev_mf_rows}
+
+        # Check Equity Diff
+        for h in holdings:
+            sym = h["tradingsymbol"]
+            new_qty = float(h.get("quantity") or 0)
+            old_h = prev_equity.get(sym)
+            old_qty = float(old_h.get("quantity") or 0) if old_h else 0
+            
+            if abs(new_qty - old_qty) > 0.0001:
+                diff = new_qty - old_qty
+                if diff > 0:
+                    # We already caught T1 buys above. This diff logic catches buys that 
+                    # happened between the last fetch and now, which might ALREADY BE realised.
+                    # To avoid double counting, we only record the diff if it's not already T1.
+                    # But wait: t1 is (qty - realised). If we bought 100 on Feb 22, and it settled 
+                    # by Feb 25, then Feb 25 realised=100. If Feb 20 realised=0, then diff=100.
+                    # We should subtract the T1 amount we already found to avoid double counting.
+                    t1_amount = next((x["quantity"] for x in detected if x["tradingsymbol"] == sym), 0)
+                    real_diff = diff - t1_amount
+                    if real_diff > 0.0001:
+                        log.info("Detecting BUY for %s: diff=%f", sym, real_diff)
+                        detected.append({
+                            "id": f"DIF_BUY_{sym}_{today_str}",
+                            "date": today_str,
+                            "type": "BUY",
+                            "instrument_type": "EQUITY",
+                            "tradingsymbol": sym,
+                            "exchange": h.get("exchange", "NSE"),
+                            "quantity": real_diff,
+                            "price": float(h.get("average_price") or 0),
+                            "amount": real_diff * float(h.get("average_price") or 0),
+                        })
+                else:
+                    sell_qty = abs(diff)
+                    log.info("Detecting SELL for %s: diff=%f", sym, sell_qty)
+                    detected.append({
+                        "id": f"DIF_SELL_{sym}_{today_str}",
+                        "date": today_str,
+                        "type": "SELL",
+                        "instrument_type": "EQUITY",
+                        "tradingsymbol": sym,
+                        "exchange": h.get("exchange", "NSE"),
+                        "quantity": sell_qty,
+                        "price": float(h.get("last_price") or 0),
+                        "amount": sell_qty * float(h.get("last_price") or 0),
+                    })
+
+        # Check MF Diff
+        for h in mf_holdings:
+            key = (h["tradingsymbol"], h.get("folio", ""))
+            new_qty = float(h.get("quantity") or 0)
+            old_h = prev_mf.get(key)
+            old_qty = float(old_h.get("quantity") or 0) if old_h else 0
+            
+            if abs(new_qty - old_qty) > 0.0001:
+                diff = new_qty - old_qty
+                if diff > 0:
+                    detected.append({
+                        "id": f"DIF_MF_BUY_{h['tradingsymbol']}_{today_str}",
+                        "date": today_str,
+                        "type": "BUY",
+                        "instrument_type": "MF",
+                        "tradingsymbol": h["tradingsymbol"],
+                        "exchange": "MF",
+                        "quantity": diff,
+                        "price": float(h.get("average_price") or 0),
+                        "amount": diff * float(h.get("average_price") or 0),
+                    })
+                else:
+                    sell_qty = abs(diff)
+                    detected.append({
+                        "id": f"DIF_MF_SELL_{h['tradingsymbol']}_{today_str}",
+                        "date": today_str,
+                        "type": "SELL",
+                        "instrument_type": "MF",
+                        "tradingsymbol": h["tradingsymbol"],
+                        "exchange": "MF",
+                        "quantity": sell_qty,
+                        "price": float(h.get("last_price") or 0),
+                        "amount": sell_qty * float(h.get("last_price") or 0),
+                    })
+            
+    return detected
+
+
 def save_portfolio_day(
+
     d: date,
     portfolio_value: float,
     portfolio_cost: float,
@@ -380,17 +557,27 @@ def save_portfolio_day(
         # Move aggregates
         conn.execute("""
             INSERT INTO portfolio_archive
-            SELECT *, ? as archived_at FROM portfolio_daily WHERE date = ?
+            (date, portfolio_value, portfolio_cost, buy_amount, sell_amount, 
+             month_buy, month_sell, month_per_stock_json, num_holdings, 
+             mf_portfolio_value, mf_portfolio_cost, price_changes_json, created_at, archived_at)
+            SELECT date, portfolio_value, portfolio_cost, buy_amount, sell_amount, 
+                   month_buy, month_sell, month_per_stock_json, num_holdings, 
+                   mf_portfolio_value, mf_portfolio_cost, price_changes_json, created_at, ? as archived_at 
+            FROM portfolio_daily WHERE date = ?
         """, (now, adate))
         # Move equity holdings
         conn.execute("""
             INSERT INTO holdings_equity_archive
-            SELECT *, ? as archived_at FROM holdings_equity_daily WHERE date = ?
+            (date, tradingsymbol, exchange, data_json, created_at, archived_at)
+            SELECT date, tradingsymbol, exchange, data_json, created_at, ? as archived_at 
+            FROM holdings_equity_daily WHERE date = ?
         """, (now, adate))
         # Move MF holdings
         conn.execute("""
             INSERT INTO holdings_mf_archive
-            SELECT *, ? as archived_at FROM holdings_mf_daily WHERE date = ?
+            (date, tradingsymbol, folio, data_json, created_at, archived_at)
+            SELECT date, tradingsymbol, folio, data_json, created_at, ? as archived_at 
+            FROM holdings_mf_daily WHERE date = ?
         """, (now, adate))
         # Delete from daily tables
         conn.execute("DELETE FROM portfolio_daily WHERE date = ?", (adate,))
@@ -441,7 +628,22 @@ def save_portfolio_day(
             (date_str, sym, folio, json.dumps(h), now),
         )
     conn.commit()
+    # Detect implicit transactions from holdings diff after we commit the daily rows
+    # so that get_previous_date can find the data if needed.
+    detected = _detect_transactions_from_holdings(conn, d, holdings, mf_holdings)
     conn.close()
+    
+    if detected:
+        # Cleanup: Remove any previously detected transactions for THIS DATE
+        # This prevents duplicate/ghost entries if the user refreshes multiple times
+        # before the weekly archive logic kicks in.
+        conn2 = get_db()
+        # id starts with HOLDING_T1_ or DIF_
+        conn2.execute("DELETE FROM transactions WHERE date = ? AND (id LIKE 'HOLDING_T1_%' OR id LIKE 'DIF_%')", (date_str,))
+        conn2.commit()
+        conn2.close()
+        save_transactions(detected)
+    
     log.info("Saved portfolio for %s: %d equity, %d MF rows", date_str, len(holdings), len(mf_holdings))
     ts = _turso_sync()
     if ts:
@@ -580,3 +782,134 @@ def get_holdings_for_date(d: date) -> dict | None:
         "equity": json.loads(cached.get("holdings_json") or "[]"),
         "mf": json.loads(cached.get("mf_holdings_json") or "[]"),
     }
+
+
+def get_all_portfolio_days() -> list:
+    """Return all portfolio_daily rows with MF holdings for NAV history building."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT date, mf_portfolio_value FROM portfolio_daily ORDER BY date ASC"
+    ).fetchall()
+    
+    result = []
+    for row in rows:
+        d = row["date"]
+        # Get MF holdings for this date
+        mf_rows = conn.execute(
+            "SELECT tradingsymbol, folio, data_json FROM holdings_mf_daily WHERE date = ?",
+            (d,)
+        ).fetchall()
+        
+        mf_holdings = []
+        for mr in mf_rows:
+            try:
+                mf_holdings.append(json.loads(mr["data_json"]))
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        result.append({
+            "date": d,
+            "mf_portfolio_value": row["mf_portfolio_value"],
+            "mf_holdings_json": json.dumps(mf_holdings),
+        })
+    
+    conn.close()
+    return result
+
+
+def save_transactions(transactions: list) -> None:
+    """Save a list of transactions to the database. Each trans is a dict."""
+    conn = get_db()
+    now = datetime.now().isoformat()
+    for t in transactions:
+        # id is broker_id or hash
+        tid = str(t.get("id") or t.get("order_id") or "")
+        if not tid: continue
+        conn.execute(
+            """INSERT OR REPLACE INTO transactions 
+               (id, date, type, instrument_type, tradingsymbol, exchange, quantity, price, amount, data_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                tid,
+                t.get("date"),
+                t.get("type"),
+                t.get("instrument_type"),
+                t.get("tradingsymbol"),
+                t.get("exchange", ""),
+                float(t.get("quantity") or 0),
+                float(t.get("price") or 0),
+                float(t.get("amount") or 0),
+                json.dumps(t),
+                now
+            )
+        )
+    conn.commit()
+    conn.close()
+    ts = _turso_sync()
+    if ts:
+        try:
+            ts.save_transactions_turso(transactions)
+        except Exception as e:
+            log.warning("Turso save_transactions failed: %s", e)
+
+
+def get_transactions(instrument_type: str = "EQUITY", limit: int = 500) -> list:
+    """Return recent transactions of a given type."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM transactions WHERE instrument_type = ? ORDER BY date DESC, created_at DESC LIMIT ?",
+        (instrument_type.upper(), limit)
+    ).fetchall()
+    conn.close()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_monthly_transaction_totals() -> dict:
+    """Return monthly buy/sell totals grouped by instrument type and month."""
+    conn = get_db()
+    query = """
+        SELECT 
+            SUBSTR(date, 1, 7) as month,
+            instrument_type,
+            type,
+            SUM(amount) as total_amount,
+            COUNT(*) as count
+        FROM transactions
+        WHERE type IN ('BUY', 'SELL')
+        GROUP BY SUBSTR(date, 1, 7), instrument_type, type
+        ORDER BY month DESC, instrument_type
+    """
+    rows = conn.execute(query).fetchall()
+    conn.close()
+    
+    result = {}
+    total_eq_count = 0
+    total_mf_count = 0
+    for r in rows:
+        month = r["month"]
+        inst_type = r["instrument_type"]
+        tx_type = r["type"]
+        amount = r["total_amount"] or 0
+        count = r["count"] or 0
+        
+        if month not in result:
+            result[month] = {
+                "EQUITY": {"buy": 0, "sell": 0, "buy_count": 0, "sell_count": 0},
+                "MF": {"buy": 0, "sell": 0, "buy_count": 0, "sell_count": 0}
+            }
+        
+        if inst_type in result[month]:
+            if tx_type == "BUY":
+                result[month][inst_type]["buy"] = amount
+                result[month][inst_type]["buy_count"] = count
+            elif tx_type == "SELL":
+                result[month][inst_type]["sell"] = amount
+                result[month][inst_type]["sell_count"] = count
+        
+        if inst_type == "EQUITY":
+            total_eq_count += count
+        elif inst_type == "MF":
+            total_mf_count += count
+    
+    return {"months": result, "total_eq_count": total_eq_count, "total_mf_count": total_mf_count}
+

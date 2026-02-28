@@ -3,3 +3,4 @@ requests>=2.31.0
 yfinance>=0.2.36
 python-dotenv>=1.0.0
 openpyxl>=3.1.0
+mftool>=3.0

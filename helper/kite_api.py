@@ -53,7 +53,8 @@ def get_price_change_pct(symbol_yahoo: str, days_back: int) -> float | None:
         if old_price <= 0:
             return None
         return round(((new_price - old_price) / old_price) * 100, 2)
-    except Exception:
+    except Exception as e:
+        log.debug("Price change pct unavailable for %s: %s", symbol_yahoo, e)
         return None
 
 
@@ -111,6 +112,18 @@ def fetch_mf_holdings(session) -> tuple[list, str | None]:
     return raw, None
 
 
+def fetch_mf_orders(session) -> tuple[list, str | None]:
+    """Fetch mutual fund orders from Kite API. Returns (list, error)."""
+    r = zerodha_request("GET", "/mf/orders", session=session)
+    data = r.json()
+    if data.get("status") != "success":
+        msg = data.get("message", "Failed to fetch MF orders")
+        log.warning("MF orders fetch failed: %s", msg)
+        return [], msg
+    raw = data.get("data") or []
+    return raw, None
+
+
 def fetch_orders_and_update_activity(session) -> tuple[float, float, float, float, dict]:
     """Fetch today's orders, update activity file, return (today_buy, today_sell, month_buy, month_sell, month_per_stock)."""
     r = zerodha_request("GET", "/orders", session=session)
@@ -147,6 +160,55 @@ def fetch_orders_and_update_activity(session) -> tuple[float, float, float, floa
     if today_per_stock:
         activity[today_key] = today_per_stock
         save_activity(activity)
+
+    # Save to transactions table (Equity)
+    equity_transactions = []
+    for o in orders_list:
+        if o.get("status") != "COMPLETE": continue
+        qty = float(o.get("filled_quantity") or 0)
+        price = float(o.get("average_price") or 0)
+        tt = (o.get("transaction_type") or "").upper()
+        equity_transactions.append({
+            "id": o.get("order_id"),
+            "date": o.get("order_timestamp", "").split(" ")[0] or today_key,
+            "type": tt,
+            "instrument_type": "EQUITY",
+            "tradingsymbol": o.get("tradingsymbol"),
+            "exchange": o.get("exchange"),
+            "quantity": qty,
+            "price": price,
+            "amount": qty * price,
+            "status": o.get("status"),
+        })
+    if equity_transactions:
+        from helper import db
+        db.save_transactions(equity_transactions)
+
+    # Fetch and save MF orders
+    mf_orders, _ = fetch_mf_orders(session)
+    mf_transactions = []
+    for o in mf_orders:
+        if o.get("status") != "COMPLETE": continue
+        qty = float(o.get("quantity") or 0)
+        price = float(o.get("last_price") or 0) # MF orders often use NAV/Last Price
+        amt = float(o.get("amount") or (qty * price))
+        tt = (o.get("transaction_type") or "").upper()
+        mf_transactions.append({
+            "id": o.get("order_id"),
+            "date": o.get("order_timestamp", "").split(" ")[0] or today_key,
+            "type": tt,
+            "instrument_type": "MF",
+            "tradingsymbol": o.get("tradingsymbol"),
+            "fund": o.get("fund", ""),  # Fund name from Kite API
+            "exchange": "MF",
+            "quantity": qty,
+            "price": price if qty else 0,
+            "amount": amt,
+            "status": o.get("status"),
+        })
+    if mf_transactions:
+        from helper import db
+        db.save_transactions(mf_transactions)
 
     now = date.today()
     month_start = now.replace(day=1)

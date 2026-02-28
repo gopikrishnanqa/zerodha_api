@@ -424,6 +424,145 @@
     .text-muted { color: var(--text-muted); }
     a.nav-link { color: var(--accent); text-decoration: none; }
     a.nav-link:hover { text-decoration: underline; }
+    /* Monthly type grid - stocks vs MF breakdown */
+    .monthly-totals-section { margin-top: 24px; }
+    .monthly-type-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .monthly-type-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .monthly-type-card h4 {
+      margin: 0 0 12px;
+      font-size: 0.95rem;
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    .monthly-type-card h4 small { font-weight: 400; }
+    .monthly-type-card.total {
+      background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+      border: 2px solid var(--accent);
+    }
+    .monthly-type-card.total h4 {
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .type-stats {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .type-stats .stat {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .type-stats .stat .label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .type-stats .stat .value {
+      font-size: 1.15rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .type-stats .stat.net {
+      margin-top: 4px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--border);
+    }
+    .type-stats .stat.net .value {
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+    @media (max-width: 800px) {
+      .monthly-type-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    /* Portfolio Distribution */
+    .distribution-section {
+      margin-top: 24px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .distribution-section h3 {
+      margin: 0 0 16px;
+      font-size: 1.1rem;
+    }
+    .distribution-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .distribution-category {
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .distribution-category h4 {
+      margin: 0 0 12px;
+      font-size: 0.95rem;
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    .distribution-bars {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .distribution-bar-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .distribution-bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+    }
+    .distribution-bar-label .name { color: var(--text); }
+    .distribution-bar-label .value { font-weight: 600; }
+    .distribution-bar-label .pct { color: var(--text-muted); margin-left: 8px; }
+    .distribution-bar {
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .distribution-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+    .bar-largecap { background: #3b82f6; }
+    .bar-midcap { background: #8b5cf6; }
+    .bar-smallcap { background: #ec4899; }
+    .bar-etf { background: #f59e0b; }
+    .bar-equity { background: #10b981; }
+    .bar-debt { background: #6366f1; }
+    .bar-gold { background: #eab308; }
+    .bar-hybrid { background: #14b8a6; }
+    .bar-other { background: #94a3b8; }
+    .bar-active { background: #ef4444; }
+    .bar-passive { background: #22c55e; }
+    .distribution-total {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed var(--border);
+      display: flex;
+      justify-content: space-between;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -447,6 +586,9 @@
     <nav class="nav" id="main-nav" style="display:none;">
       <a href="/" data-page="dashboard">Dashboard</a>
       <a href="/holdings" data-page="holdings">Stocks &amp; MF</a>
+      <a href="/performance" data-page="performance">Performance</a>
+      <a href="/stock-ledger" data-page="stock-ledger">Stock Ledger</a>
+      <a href="/mf-ledger" data-page="mf-ledger">MF Ledger</a>
       <a href="/monthly" data-page="monthly">Monthly Summary</a>
       <a href="/weekly" data-page="weekly">Weekly Summary</a>
       <a href="/db" data-page="db">DB View</a>
@@ -457,6 +599,7 @@
     <div id="page-dashboard" class="page">
       <div id="cache-indicator" class="cache-indicator" style="display:none;"></div>
       <div id="summary-cards" class="summary-cards" style="display:none;"></div>
+      <div id="distribution-section" class="distribution-section" style="display:none;"></div>
       <div id="comparison-cards" class="comparison-cards" style="display:none;"></div>
       <p class="text-muted" style="margin-top: 16px;"><a href="/holdings" class="nav-link">View Stocks &amp; Mutual Funds →</a></p>
     </div>
@@ -578,8 +721,209 @@
     let sortCol = 'value';
     let sortDir = 1;
 
+    let useCompactNumbers = localStorage.getItem('compactNumbers') !== 'false';
+    
     function fmt(num) {
-      return '₹' + (num || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+      return (num || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    
+    function fmtCompact(num) {
+      if (!useCompactNumbers) return fmt(num);
+      const abs = Math.abs(num || 0);
+      if (abs >= 10000000) return (num / 10000000).toFixed(2) + ' Cr';
+      if (abs >= 100000) return (num / 100000).toFixed(2) + ' L';
+      return (num || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    
+    function toggleCompactNumbers() {
+      useCompactNumbers = !useCompactNumbers;
+      localStorage.setItem('compactNumbers', useCompactNumbers);
+      // Update all compact-formatted values without reloading
+      document.querySelectorAll('[data-raw-value]').forEach(el => {
+        const raw = parseFloat(el.dataset.rawValue) || 0;
+        const prefix = el.dataset.prefix || '';
+        el.textContent = prefix + fmtCompact(raw);
+      });
+    }
+    
+    // Stock classification patterns
+    const LARGECAP_KEYWORDS = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 'ITC', 'SBIN', 'BHARTIARTL', 'KOTAKBANK', 'LT', 'AXISBANK', 'ASIANPAINT', 'MARUTI', 'HCLTECH', 'SUNPHARMA', 'TITAN', 'BAJFINANCE', 'WIPRO', 'ULTRACEMCO', 'NESTLEIND', 'TECHM', 'POWERGRID', 'NTPC', 'TATAMOTORS', 'M&M', 'BAJAJFINSV', 'ONGC', 'JSWSTEEL', 'TATASTEEL', 'ADANIENT', 'ADANIPORTS', 'COALINDIA', 'GRASIM', 'CIPLA', 'DRREDDY', 'BPCL', 'DIVISLAB', 'BRITANNIA', 'EICHERMOT', 'HEROMOTOCO', 'INDUSINDBK', 'APOLLOHOSP', 'TATACONSUM', 'HINDALCO', 'SBILIFE', 'HDFCLIFE', 'BAJAJ-AUTO', 'UPL', 'LTIM'];
+    const ETF_KEYWORDS = ['ETF', 'NIFTYBEES', 'BANKBEES', 'GOLDBEES', 'JUNIORBEES', 'SETFNIF50', 'LIQUIDBEES', 'SILVERBEES', 'CPSE', 'MOM100', 'MON100', 'NETFIT', 'ITBEES'];
+    
+    function classifyStock(symbol) {
+      const sym = (symbol || '').toUpperCase();
+      if (ETF_KEYWORDS.some(k => sym.includes(k))) return 'ETF';
+      if (LARGECAP_KEYWORDS.includes(sym)) return 'Large Cap';
+      // Heuristic: stocks in Nifty Next 50 or with high volumes tend to be midcap
+      // For now, classify unknown as "Mid/Small Cap" - user can customize
+      return 'Mid/Small Cap';
+    }
+    
+    function classifyMutualFund(fundName) {
+      const name = (fundName || '').toUpperCase();
+      const result = { assetClass: 'Equity', style: 'Active' };
+      
+      // Asset class
+      if (name.includes('DEBT') || name.includes('BOND') || name.includes('GILT') || name.includes('LIQUID') || name.includes('OVERNIGHT') || name.includes('MONEY MARKET') || name.includes('CORPORATE BOND') || name.includes('BANKING & PSU') || name.includes('SHORT DURATION') || name.includes('MEDIUM DURATION') || name.includes('LONG DURATION') || name.includes('CREDIT RISK') || name.includes('DYNAMIC BOND') || name.includes('FLOATER')) {
+        result.assetClass = 'Debt';
+      } else if (name.includes('GOLD') || name.includes('SILVER')) {
+        result.assetClass = 'Gold/Silver';
+      } else if (name.includes('HYBRID') || name.includes('BALANCED') || name.includes('EQUITY SAVINGS') || name.includes('CONSERVATIVE') || name.includes('AGGRESSIVE') || name.includes('DYNAMIC ASSET') || name.includes('MULTI ASSET') || name.includes('ARBITRAGE')) {
+        result.assetClass = 'Hybrid';
+      }
+      
+      // Style: Passive vs Active
+      if (name.includes('INDEX') || name.includes('ETF') || name.includes('NIFTY') || name.includes('SENSEX') || name.includes('PASSIVE') || name.includes('NEXT 50') || name.includes('MIDCAP 150') || name.includes('SMALLCAP 250')) {
+        result.style = 'Passive';
+      }
+      
+      // Equity sub-classification
+      if (result.assetClass === 'Equity') {
+        if (name.includes('LARGE CAP') || name.includes('LARGECAP') || name.includes('LARGE & MID') || name.includes('BLUECHIP') || name.includes('NIFTY 50') || name.includes('SENSEX')) {
+          result.equityType = 'Large Cap';
+        } else if (name.includes('MID CAP') || name.includes('MIDCAP')) {
+          result.equityType = 'Mid Cap';
+        } else if (name.includes('SMALL CAP') || name.includes('SMALLCAP')) {
+          result.equityType = 'Small Cap';
+        } else if (name.includes('FLEXI') || name.includes('MULTI CAP') || name.includes('MULTICAP')) {
+          result.equityType = 'Flexi/Multi Cap';
+        } else {
+          result.equityType = 'Other Equity';
+        }
+      }
+      
+      return result;
+    }
+    
+    function renderDistribution(holdings, mfHoldings) {
+      const distEl = document.getElementById('distribution-section');
+      if (!distEl) return;
+      
+      // Calculate stock distribution
+      const stockDist = { 'Large Cap': 0, 'Mid/Small Cap': 0, 'ETF': 0 };
+      let totalStockValue = 0;
+      holdings.forEach(h => {
+        const val = (h.quantity || 0) * (parseFloat(h.last_price) || 0);
+        const cat = classifyStock(h.tradingsymbol);
+        stockDist[cat] = (stockDist[cat] || 0) + val;
+        totalStockValue += val;
+      });
+      
+      // Calculate MF distribution
+      const mfAssetDist = { 'Equity': 0, 'Debt': 0, 'Gold/Silver': 0, 'Hybrid': 0 };
+      const mfStyleDist = { 'Active': 0, 'Passive': 0 };
+      const mfEquityDist = { 'Large Cap': 0, 'Mid Cap': 0, 'Small Cap': 0, 'Flexi/Multi Cap': 0, 'Other Equity': 0 };
+      let totalMfValue = 0;
+      
+      mfHoldings.forEach(h => {
+        const val = (parseFloat(h.quantity) || 0) * (parseFloat(h.last_price) || 0);
+        const fundName = h.fund || h.tradingsymbol || '';
+        const cls = classifyMutualFund(fundName);
+        mfAssetDist[cls.assetClass] = (mfAssetDist[cls.assetClass] || 0) + val;
+        mfStyleDist[cls.style] = (mfStyleDist[cls.style] || 0) + val;
+        if (cls.equityType) {
+          mfEquityDist[cls.equityType] = (mfEquityDist[cls.equityType] || 0) + val;
+        }
+        totalMfValue += val;
+      });
+      
+      const totalValue = totalStockValue + totalMfValue;
+      
+      // Combined distribution
+      const combinedDist = {
+        'Large Cap': stockDist['Large Cap'] + (mfEquityDist['Large Cap'] || 0),
+        'Mid Cap': stockDist['Mid/Small Cap'] + (mfEquityDist['Mid Cap'] || 0),
+        'Small Cap': mfEquityDist['Small Cap'] || 0,
+        'Flexi/Multi': mfEquityDist['Flexi/Multi Cap'] || 0,
+        'ETF': stockDist['ETF'],
+        'Debt': mfAssetDist['Debt'],
+        'Gold/Silver': mfAssetDist['Gold/Silver'],
+        'Hybrid': mfAssetDist['Hybrid'],
+        'Other': (mfEquityDist['Other Equity'] || 0)
+      };
+      
+      const barColors = {
+        'Large Cap': '#3b82f6',
+        'Mid Cap': '#8b5cf6',
+        'Small Cap': '#ec4899',
+        'Mid/Small Cap': '#a855f7',
+        'Flexi/Multi': '#6366f1',
+        'Flexi/Multi Cap': '#6366f1',
+        'ETF': '#f59e0b',
+        'Equity': '#10b981',
+        'Debt': '#6366f1',
+        'Gold/Silver': '#eab308',
+        'Gold': '#eab308',
+        'Hybrid': '#14b8a6',
+        'Other': '#94a3b8',
+        'Other Equity': '#94a3b8',
+        'Active': '#ef4444',
+        'Passive': '#22c55e'
+      };
+      
+      const barHtml = (items, total) => {
+        return Object.entries(items)
+          .filter(([_, val]) => val > 0)
+          .sort((a, b) => b[1] - a[1])
+          .map(([name, val]) => {
+            const pct = total > 0 ? (val / total * 100).toFixed(1) : 0;
+            const color = barColors[name] || '#94a3b8';
+            return `
+              <div class="distribution-bar-item">
+                <div class="distribution-bar-label">
+                  <span class="name">${name}</span>
+                  <span><span class="value">${fmtCompact(val)}</span><span class="pct">(${pct}%)</span></span>
+                </div>
+                <div class="distribution-bar"><div class="distribution-bar-fill" style="width: ${pct}%; background: ${color};"></div></div>
+              </div>`;
+          }).join('');
+      };
+      
+      distEl.innerHTML = `
+        <h3>Portfolio Distribution</h3>
+        <div class="distribution-grid">
+          <div class="distribution-category">
+            <h4>Stocks by Market Cap</h4>
+            <div class="distribution-bars">
+              ${barHtml(stockDist, totalStockValue)}
+            </div>
+            <div class="distribution-total">
+              <span>Total Stocks</span>
+              <span>${fmtCompact(totalStockValue)}</span>
+            </div>
+          </div>
+          
+          <div class="distribution-category">
+            <h4>Mutual Funds by Asset Class</h4>
+            <div class="distribution-bars">
+              ${barHtml(mfAssetDist, totalMfValue)}
+            </div>
+            <div class="distribution-total">
+              <span>Total MF</span>
+              <span>${fmtCompact(totalMfValue)}</span>
+            </div>
+          </div>
+          
+          <div class="distribution-category">
+            <h4>MF: Active vs Passive</h4>
+            <div class="distribution-bars">
+              ${barHtml(mfStyleDist, totalMfValue)}
+            </div>
+          </div>
+          
+          <div class="distribution-category">
+            <h4>Combined Allocation</h4>
+            <div class="distribution-bars">
+              ${barHtml(combinedDist, totalValue)}
+            </div>
+            <div class="distribution-total">
+              <span>Total Portfolio</span>
+              <span>${fmtCompact(totalValue)}</span>
+            </div>
+          </div>
+        </div>
+      `;
+      distEl.style.display = 'block';
     }
 
     function makeSortable() {
@@ -745,6 +1089,7 @@
           main.innerHTML = '<div class="card"><div class="empty-state"><p>No holdings found</p><small>Connect with Zerodha. Equity: delivery holdings. MF: Coin holdings.</small></div></div>';
           summaryEl.style.display = 'none';
           comparisonEl.style.display = 'none';
+          document.getElementById('distribution-section').style.display = 'none';
           showPage(pageFromPathname(location.pathname));
           return;
         }
@@ -841,6 +1186,9 @@
         } else {
           comparisonEl.style.display = 'none';
         }
+        
+        // Render portfolio distribution
+        renderDistribution(holdings, mfHoldings);
 
         holdingsData = holdings;
         let mainHtml = `
@@ -983,6 +1331,7 @@
         summaryEl.style.display = 'none';
         cacheEl.style.display = 'none';
         comparisonEl.style.display = 'none';
+        document.getElementById('distribution-section').style.display = 'none';
       }
     }
 
@@ -1055,11 +1404,12 @@
 
     async function loadMonthlyPage() {
       const el = document.getElementById('monthly-content');
-      el.innerHTML = '<p>Loading…</p>';
+      el.innerHTML = '<p>Loading monthly summary...</p>';
       try {
-        const [r1, r2] = await Promise.all([
+        const [r1, r2, r3] = await Promise.all([
           fetch('/api/summary-by-date', { credentials: 'same-origin', cache: 'no-store' }),
-          fetch('/api/cache-status', { credentials: 'same-origin', cache: 'no-store' })
+          fetch('/api/cache-status', { credentials: 'same-origin', cache: 'no-store' }),
+          fetch('/api/monthly-transactions', { credentials: 'same-origin', cache: 'no-store' })
         ]);
         if (r1.status === 401 || r2.status === 401) {
           el.innerHTML = '<p class="text-muted">Please <strong>connect with Zerodha</strong> on the Dashboard first to view the summary. This page uses your saved portfolio data.</p>';
@@ -1067,7 +1417,11 @@
         }
         const d1 = await r1.json().catch(() => ({}));
         const d2 = await r2.json().catch(() => ({}));
+        const d3 = await r3.json().catch(() => ({}));
         const rows = d1.rows || d2.rows || [];
+        const txTotals = d3.monthly_totals || {};
+        const totalEqCount = d3.total_eq_count || 0;
+        const totalMfCount = d3.total_mf_count || 0;
         if (rows.length === 0) {
           el.innerHTML = '<p class="text-muted">No stored dates. Connect with Zerodha and refresh portfolio on the Dashboard to save data, or import an Excel holdings file.</p>';
           return;
@@ -1125,17 +1479,54 @@
           if (!byMonth[month] || byMonth[month].date < r.date) byMonth[month] = r;
         });
         const months = Object.keys(byMonth).sort().reverse();
+        
+        // Calculate overall totals from transactions
+        let eqBuyTotal = 0, eqSellTotal = 0, mfBuyTotal = 0, mfSellTotal = 0;
+        Object.values(txTotals).forEach(m => {
+          eqBuyTotal += m.EQUITY?.buy || 0;
+          eqSellTotal += m.EQUITY?.sell || 0;
+          mfBuyTotal += m.MF?.buy || 0;
+          mfSellTotal += m.MF?.sell || 0;
+        });
+        const totalBuy = eqBuyTotal + mfBuyTotal;
+        const totalSell = eqSellTotal + mfSellTotal;
+        const totalNet = totalBuy - totalSell;
+        
         let monthHtml = '';
         if (months.length > 0) {
-          monthHtml = '<h3 style="margin:24px 0 12px;">Monthly summary</h3>' +
-            '<p class="text-muted" style="font-size:0.85rem; margin-bottom: 16px;">One row per month (latest stored date in that month). Growth = change in Total vs previous month’s end.</p>' +
+          // Overall summary cards - separated by type
+          monthHtml = '<div class="monthly-totals-section">' +
+            '<div style="display:flex; justify-content:space-between; align-items:center; margin: 24px 0 16px;">' +
+            '<h3 style="margin:0;">Investment Summary (From Transactions)</h3>' +
+            '<label class="compact-view-toggle"><input type="checkbox" id="compact-numbers-toggle" ' + (useCompactNumbers ? 'checked' : '') + ' onchange="toggleCompactNumbers()"> Compact (L/Cr)</label>' +
+            '</div>' +
+            '<p class="text-muted" style="font-size:0.85rem; margin-bottom: 16px;">Data from orders captured by this app. Totals may be incomplete if the app was not running when orders were placed.</p>' +
+            '<div class="monthly-type-grid">' +
+            '<div class="monthly-type-card"><h4>Stocks (Equity) <small class="text-muted">(' + totalEqCount + ' orders)</small></h4><div class="type-stats">' +
+            '<div class="stat"><span class="label">Invested</span><span class="value pct-up" data-raw-value="' + eqBuyTotal + '" data-prefix="+">+' + fmtCompact(eqBuyTotal) + '</span></div>' +
+            '<div class="stat"><span class="label">Sold</span><span class="value pct-down" data-raw-value="' + eqSellTotal + '" data-prefix="' + (eqSellTotal > 0 ? '-' : '') + '">' + (eqSellTotal > 0 ? '-' : '') + fmtCompact(eqSellTotal) + '</span></div>' +
+            '<div class="stat net"><span class="label">Net</span><span class="value ' + (eqBuyTotal - eqSellTotal >= 0 ? 'pct-up' : 'pct-down') + '" data-raw-value="' + (eqBuyTotal - eqSellTotal) + '" data-prefix="' + (eqBuyTotal - eqSellTotal >= 0 ? '+' : '') + '">' + (eqBuyTotal - eqSellTotal >= 0 ? '+' : '') + fmtCompact(eqBuyTotal - eqSellTotal) + '</span></div>' +
+            '</div></div>' +
+            '<div class="monthly-type-card"><h4>Mutual Funds <small class="text-muted">(' + totalMfCount + ' orders)</small></h4><div class="type-stats">' +
+            '<div class="stat"><span class="label">Invested</span><span class="value pct-up" data-raw-value="' + mfBuyTotal + '" data-prefix="+">+' + fmtCompact(mfBuyTotal) + '</span></div>' +
+            '<div class="stat"><span class="label">Sold</span><span class="value pct-down" data-raw-value="' + mfSellTotal + '" data-prefix="' + (mfSellTotal > 0 ? '-' : '') + '">' + (mfSellTotal > 0 ? '-' : '') + fmtCompact(mfSellTotal) + '</span></div>' +
+            '<div class="stat net"><span class="label">Net</span><span class="value ' + (mfBuyTotal - mfSellTotal >= 0 ? 'pct-up' : 'pct-down') + '" data-raw-value="' + (mfBuyTotal - mfSellTotal) + '" data-prefix="' + (mfBuyTotal - mfSellTotal >= 0 ? '+' : '') + '">' + (mfBuyTotal - mfSellTotal >= 0 ? '+' : '') + fmtCompact(mfBuyTotal - mfSellTotal) + '</span></div>' +
+            '</div></div>' +
+            '<div class="monthly-type-card total"><h4>Total</h4><div class="type-stats">' +
+            '<div class="stat"><span class="label">Invested</span><span class="value pct-up" data-raw-value="' + totalBuy + '" data-prefix="+">+' + fmtCompact(totalBuy) + '</span></div>' +
+            '<div class="stat"><span class="label">Sold</span><span class="value pct-down" data-raw-value="' + totalSell + '" data-prefix="' + (totalSell > 0 ? '-' : '') + '">' + (totalSell > 0 ? '-' : '') + fmtCompact(totalSell) + '</span></div>' +
+            '<div class="stat net"><span class="label">Net</span><span class="value ' + (totalNet >= 0 ? 'pct-up' : 'pct-down') + '" data-raw-value="' + totalNet + '" data-prefix="' + (totalNet >= 0 ? '+' : '') + '">' + (totalNet >= 0 ? '+' : '') + fmtCompact(totalNet) + '</span></div>' +
+            '</div></div>' +
+            '</div></div>';
+          
+          monthHtml += '<h3 style="margin:24px 0 12px;">Monthly Breakdown (Stocks + MF)</h3>' +
+            '<p class="text-muted" style="font-size:0.85rem; margin-bottom: 16px;">Transaction data from orders. Stocks and MF shown separately. </p>' +
             '<div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr>' +
-            '<th>Month</th><th>End date</th><th>Total value</th><th>Total invested</th><th>Growth vs prev month</th><th>Month invested (EQ)</th><th>Month sold</th>' +
+            '<th>Month</th><th>Total Value</th><th>Growth</th><th>Stocks Buy</th><th>Stocks Sell</th><th>MF Buy</th><th>MF Sell</th><th>Net Total</th>' +
             '</tr></thead><tbody>';
           months.forEach((ym, idx) => {
             const r = byMonth[ym];
             const total = (r.portfolio_value || 0) + (r.mf_portfolio_value || 0);
-            const invested = totalInvested(r);
             const prevYm = idx < months.length - 1 ? months[idx + 1] : null;
             const prevR = prevYm ? byMonth[prevYm] : null;
             const prevTotal = prevR ? (prevR.portfolio_value || 0) + (prevR.mf_portfolio_value || 0) : null;
@@ -1145,8 +1536,20 @@
               const pct = prevTotal > 0 ? ((growth / prevTotal) * 100).toFixed(2) : '';
               growthCell = '<span class="' + (growth >= 0 ? 'pct-up' : 'pct-down') + '">' + (growth >= 0 ? '+' : '') + fmt(growth) + (pct ? ' (' + (growth >= 0 ? '+' : '') + pct + '%)' : '') + '</span>';
             }
+            const tx = txTotals[ym] || { EQUITY: { buy: 0, sell: 0 }, MF: { buy: 0, sell: 0 } };
+            const eqBuy = tx.EQUITY?.buy || 0;
+            const eqSell = tx.EQUITY?.sell || 0;
+            const mfBuy = tx.MF?.buy || 0;
+            const mfSell = tx.MF?.sell || 0;
+            const monthNet = (eqBuy + mfBuy) - (eqSell + mfSell);
             const monthLabel = new Date(ym + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
-            monthHtml += '<tr><td>' + monthLabel + '</td><td>' + r.date + '</td><td><strong>' + fmt(total) + '</strong></td><td>' + fmt(invested) + '</td><td>' + growthCell + '</td><td class="pct-up">' + fmt(r.month_buy) + '</td><td class="pct-down">' + fmt(r.month_sell) + '</td></tr>';
+            const netClass = monthNet >= 0 ? 'pct-up' : 'pct-down';
+            monthHtml += '<tr><td><strong>' + monthLabel + '</strong></td><td><strong>' + fmt(total) + '</strong></td><td>' + growthCell + '</td>' +
+              '<td class="pct-up">' + (eqBuy > 0 ? '+' + fmt(eqBuy) : '–') + '</td>' +
+              '<td class="pct-down">' + (eqSell > 0 ? '-' + fmt(eqSell) : '–') + '</td>' +
+              '<td class="pct-up">' + (mfBuy > 0 ? '+' + fmt(mfBuy) : '–') + '</td>' +
+              '<td class="pct-down">' + (mfSell > 0 ? '-' + fmt(mfSell) : '–') + '</td>' +
+              '<td class="' + netClass + '"><strong>' + (monthNet >= 0 ? '+' : '') + fmt(monthNet) + '</strong></td></tr>';
           });
           monthHtml += '</tbody></table></div>';
         }

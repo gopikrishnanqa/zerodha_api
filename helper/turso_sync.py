@@ -193,6 +193,51 @@ def _execute_many(requests_list: list) -> tuple[dict | None, str | None]:
         return None, str(e)[:200]
 
 
+def init_turso_tables():
+    """Ensure all required tables exist on Turso."""
+    if not _turso_enabled():
+        return
+
+    # Aggregate snapshots per day
+    _execute_one("""
+        CREATE TABLE IF NOT EXISTS portfolio_daily (
+            date TEXT PRIMARY KEY,
+            portfolio_value REAL NOT NULL,
+            portfolio_cost REAL NOT NULL,
+            buy_amount REAL NOT NULL,
+            sell_amount REAL NOT NULL,
+            month_buy REAL NOT NULL,
+            month_sell REAL NOT NULL,
+            month_per_stock_json TEXT,
+            num_holdings INTEGER DEFAULT 0,
+            mf_portfolio_value REAL DEFAULT 0,
+            mf_portfolio_cost REAL DEFAULT 0,
+            price_changes_json TEXT,
+            created_at TEXT
+        )
+    """)
+    # Per-stock snapshots per day
+    _execute_one("""
+        CREATE TABLE IF NOT EXISTS holdings_equity_daily (
+            date TEXT NOT NULL,
+            tradingsymbol TEXT NOT NULL,
+            exchange TEXT NOT NULL,
+            data_json TEXT NOT NULL,
+            created_at TEXT,
+            PRIMARY KEY (date, tradingsymbol, exchange)
+        )
+    """)
+    _execute_one("""
+        CREATE TABLE IF NOT EXISTS holdings_mf_daily (
+            date TEXT NOT NULL,
+            tradingsymbol TEXT NOT NULL,
+            folio TEXT NOT NULL,
+            data_json TEXT NOT NULL,
+            created_at TEXT,
+            PRIMARY KEY (date, tradingsymbol, folio)
+        )
+    """)
+
     # Archive tables for weekly snapshots
     _execute_one("""
         CREATE TABLE IF NOT EXISTS portfolio_archive (
@@ -230,6 +275,21 @@ def _execute_many(requests_list: list) -> tuple[dict | None, str | None]:
             data_json TEXT NOT NULL,
             created_at TEXT,
             archived_at TEXT
+        )
+    """)
+    _execute_one("""
+        CREATE TABLE IF NOT EXISTS transactions (
+            id TEXT PRIMARY KEY,
+            date TEXT NOT NULL,
+            type TEXT NOT NULL,
+            instrument_type TEXT NOT NULL,
+            tradingsymbol TEXT NOT NULL,
+            exchange TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            price REAL NOT NULL,
+            amount REAL NOT NULL,
+            data_json TEXT,
+            created_at TEXT
         )
     """)
     _execute_one("""
@@ -425,3 +485,36 @@ def clear_portfolio_cache_turso() -> None:
     _execute_one("DELETE FROM holdings_equity_daily")
     _execute_one("DELETE FROM holdings_mf_daily")
     log.info("Turso sync: cleared portfolio cache")
+
+
+def save_transactions_turso(transactions: list) -> None:
+    """Mirror save_transactions to Turso."""
+    if not _turso_enabled():
+        return
+    now = datetime.now().isoformat()
+    reqs = []
+    for t in transactions:
+        tid = str(t.get("id") or t.get("order_id") or "")
+        if not tid: continue
+        reqs.append((
+            """INSERT OR REPLACE INTO transactions 
+               (id, date, type, instrument_type, tradingsymbol, exchange, quantity, price, amount, data_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                tid,
+                t.get("date"),
+                t.get("type"),
+                t.get("instrument_type"),
+                t.get("tradingsymbol"),
+                t.get("exchange", ""),
+                _sanitize_float(t.get("quantity")) or 0,
+                _sanitize_float(t.get("price")) or 0,
+                _sanitize_float(t.get("amount")) or 0,
+                json.dumps(t),
+                now
+            )
+        ))
+    if reqs:
+        _execute_many(reqs)
+        log.info("Turso sync: saved %d transactions", len(reqs))
+

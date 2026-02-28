@@ -63,6 +63,11 @@ def _migrate_data_to_data_dir():
 @app.route("/weekly")
 @app.route("/db")
 @app.route("/by-date")
+@app.route("/ledger-equity")
+@app.route("/ledger-mf")
+@app.route("/mf-dip")
+@app.route("/performance")
+@app.route("/tools")
 @app.route("/checklist")
 def index():
     """Serve main page (separate URLs for each section)."""
@@ -124,12 +129,15 @@ def portfolio_summary():
     - If today's row exists and refresh=0: return from DB (no Zerodha API call).
     - If cache has no MF data: fetch MF only, update cache, return.
     - If today's row missing or refresh=1: fetch from Kite, save to DB, return.
+    
+    New: skip_price_changes=1 skips expensive Yahoo Finance calls (for fast initial load).
     """
     try:
         db.init_db()
         today = date.today()
         today_str = today.isoformat()
         refresh = request.args.get("refresh", "").lower() in ("1", "true", "yes")
+        skip_price_changes = request.args.get("skip_price_changes", "").lower() in ("1", "true", "yes")
         payload = None
 
         if refresh:
@@ -137,7 +145,12 @@ def portfolio_summary():
             data, err = kite_api.fetch_and_compute_portfolio(session)
             if err:
                 return jsonify({"error": err}), 400
-            price_changes = kite_api.fetch_price_changes_for_holdings(data["holdings"])
+            # Skip price changes if requested (will be fetched in background)
+            if skip_price_changes:
+                price_changes = {}
+                log.info("Portfolio: skipping price changes fetch (skip_price_changes=1)")
+            else:
+                price_changes = kite_api.fetch_price_changes_for_holdings(data["holdings"])
             data["price_changes"] = price_changes
             db.save_portfolio_day(
                 today,
@@ -176,7 +189,12 @@ def portfolio_summary():
                 data, err = kite_api.fetch_and_compute_portfolio(session)
                 if err:
                     return jsonify({"error": err}), 400
-                price_changes = kite_api.fetch_price_changes_for_holdings(data["holdings"])
+                # Skip price changes if requested (will be fetched in background)
+                if skip_price_changes:
+                    price_changes = {}
+                    log.info("Portfolio: skipping price changes fetch (skip_price_changes=1)")
+                else:
+                    price_changes = kite_api.fetch_price_changes_for_holdings(data["holdings"])
                 data["price_changes"] = price_changes
                 db.save_portfolio_day(
                     today,
@@ -275,6 +293,79 @@ def portfolio_summary():
         return resp
     except Exception as e:
         log.exception("portfolio_summary failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/portfolio-cached")
+@require_auth
+def portfolio_cached():
+    """
+    Fast endpoint: Return portfolio from DB cache only (no API calls).
+    Returns latest cached data regardless of date. Used for instant initial load.
+    """
+    try:
+        db.init_db()
+        today = date.today()
+        
+        # Try today's cache first, then get the most recent cached day
+        cached = db.get_cached_day(today)
+        if cached is None:
+            cached = db.get_cached_day_on_or_before(today)
+        
+        if cached is None:
+            return jsonify({"error": "no_cache", "message": "No cached data available"}), 404
+        
+        cache_date = cached.get("date", "")
+        last_day_prev = today.replace(day=1) - timedelta(days=1)
+        cached_first_prev = db.get_cached_day_on_or_before(last_day_prev)
+        
+        payload = portfolio_helper.build_portfolio_payload({}, True, cached, cached_first_prev)
+        payload["cache_date"] = cache_date
+        payload["is_stale"] = cache_date != today.isoformat()
+        
+        # Add comparison data
+        prev_date = db.get_previous_date(date.fromisoformat(cache_date) if cache_date else today)
+        comparison = None
+        if prev_date:
+            prev_row = db.get_cached_day(prev_date)
+            if prev_row:
+                comparison = {
+                    "previous_date": prev_date.isoformat(),
+                    "invested_diff": round(payload["portfolio_cost"] - float(prev_row["portfolio_cost"]), 2),
+                    "buy_diff": round(payload["buy_amount"] - float(prev_row["buy_amount"]), 2),
+                    "sell_diff": round(payload["sell_amount"] - float(prev_row["sell_amount"]), 2),
+                    "portfolio_value_diff": round(payload["portfolio_value"] - float(prev_row["portfolio_value"]), 2),
+                }
+        payload["comparison"] = comparison
+        
+        # Add month/year data
+        if not payload.get("last_month_value_date"):
+            if cached_first_prev:
+                pv = float(cached_first_prev.get("portfolio_value") or 0)
+                pc = float(cached_first_prev.get("portfolio_cost") or 0)
+                mfv = float(cached_first_prev.get("mf_portfolio_value") or 0)
+                mfc = float(cached_first_prev.get("mf_portfolio_cost") or 0)
+                payload["last_month_value_date"] = cached_first_prev.get("date")
+                payload["last_month_portfolio_value"] = pv + mfv
+                payload["last_month_portfolio_cost"] = pc + mfc
+        
+        last_day_prev_year = date(today.year - 1, 12, 31)
+        cached_prev_year = db.get_cached_day_on_or_before(last_day_prev_year)
+        if cached_prev_year:
+            pv = float(cached_prev_year.get("portfolio_value") or 0)
+            pc = float(cached_prev_year.get("portfolio_cost") or 0)
+            mfv = float(cached_prev_year.get("mf_portfolio_value") or 0)
+            mfc = float(cached_prev_year.get("mf_portfolio_cost") or 0)
+            payload["last_year_value_date"] = cached_prev_year.get("date")
+            payload["last_year_portfolio_value"] = pv + mfv
+            payload["last_year_portfolio_cost"] = pc + mfc
+        
+        log.info("Portfolio cached: serving %s (stale=%s)", cache_date, payload["is_stale"])
+        resp = jsonify(payload)
+        resp.headers["X-Data-Source"] = "cache"
+        return resp
+    except Exception as e:
+        log.exception("portfolio_cached failed")
         return jsonify({"error": str(e)}), 500
 
 
@@ -506,6 +597,70 @@ def weekly_summary():
     return jsonify({"rows": out, "month": month})
 
 
+@app.route("/api/ledger/equity")
+@require_auth
+def ledger_equity():
+    """Return equity transaction ledger (recent 500)."""
+    db.init_db()
+    rows = db.get_transactions("EQUITY", 500)
+    return jsonify({"rows": rows})
+
+
+@app.route("/api/monthly-transactions")
+@require_auth
+def monthly_transactions():
+    """Return monthly buy/sell totals separated by stocks and MF."""
+    db.init_db()
+    data = db.get_monthly_transaction_totals()
+    return jsonify({
+        "monthly_totals": data["months"],
+        "total_eq_count": data["total_eq_count"],
+        "total_mf_count": data["total_mf_count"]
+    })
+
+
+@app.route("/api/ledger/mf")
+@require_auth
+def ledger_mf():
+    """Return Mutual Fund transaction ledger (recent 500) with fund names."""
+    db.init_db()
+    rows = db.get_transactions("MF", 500)
+    
+    # Get MF name mapping from the most recent MF holdings
+    mf_name_map = {}
+    today = date.today()
+    cached = db.get_cached_day_on_or_before(today)
+    if cached:
+        try:
+            mf_holdings = json.loads(cached.get("mf_holdings_json") or "[]")
+            for h in mf_holdings:
+                sym = h.get("tradingsymbol", "")
+                fund_name = h.get("fund", "")
+                if sym and fund_name:
+                    mf_name_map[sym] = fund_name
+        except (json.JSONDecodeError, TypeError):
+            pass
+    
+    # Add fund names to rows
+    enriched_rows = []
+    for r in rows:
+        row = dict(r)
+        sym = row.get("tradingsymbol", "")
+        # Try to get fund name from data_json first, then from mapping
+        try:
+            data = json.loads(row.get("data_json") or "{}")
+            fund_name = data.get("fund", "")
+        except (json.JSONDecodeError, TypeError):
+            fund_name = ""
+        if not fund_name:
+            fund_name = mf_name_map.get(sym, "")
+        row["fund_name"] = fund_name
+        enriched_rows.append(row)
+    
+    return jsonify({"rows": enriched_rows})
+
+
+
 @app.route("/api/nifty50-closes")
 @require_auth
 def nifty50_closes():
@@ -536,6 +691,156 @@ def nifty50_closes():
             if len(before):
                 closes[d_str] = round(float(before.iloc[-1]["Close"]), 2)
     return jsonify({"closes": closes})
+
+
+@app.route("/api/performance-data")
+@require_auth
+def performance_data():
+    """
+    Return portfolio performance data for charting.
+    Simulates: "What if I invested the same amount in Nifty 50 or Nifty Next 50?"
+    
+    For each date:
+    - Track actual portfolio value and cost (invested amount)
+    - Calculate hypothetical Nifty 50 / Next 50 value if same investments were made
+    - When cost increases (new investment), buy equivalent index units
+    - When cost decreases (withdrawal), sell proportional index units
+    """
+    db.init_db()
+    
+    # Get all stored portfolio dates
+    rows = db.get_cache_status_rows(365)
+    if not rows:
+        return jsonify({"error": "No portfolio data available"}), 404
+    
+    # Sort by date ascending
+    rows = sorted(rows, key=lambda r: r["date"])
+    dates = [r["date"] for r in rows]
+    
+    if len(dates) < 2:
+        return jsonify({"error": "Need at least 2 data points for comparison"}), 400
+    
+    # Portfolio values and costs (equity + MF)
+    portfolio_data = []
+    for r in rows:
+        pv = float(r.get("portfolio_value") or 0) + float(r.get("mf_portfolio_value") or 0)
+        pc = float(r.get("portfolio_cost") or 0) + float(r.get("mf_portfolio_cost") or 0)
+        portfolio_data.append({"date": r["date"], "value": pv, "cost": pc})
+    
+    # Fetch Nifty 50 and Nifty Next 50 index prices
+    min_d = date.fromisoformat(dates[0])
+    max_d = date.fromisoformat(dates[-1])
+    
+    nifty50_prices = {}
+    niftynext50_prices = {}
+    
+    try:
+        # Nifty 50: ^NSEI
+        ticker50 = yf.Ticker("^NSEI")
+        hist50 = ticker50.history(start=min_d - timedelta(days=7), end=max_d + timedelta(days=1), auto_adjust=True)
+        if not hist50.empty:
+            for d_str in dates:
+                d = date.fromisoformat(d_str)
+                on_date = hist50[hist50.index.date == d]
+                if len(on_date):
+                    nifty50_prices[d_str] = float(on_date.iloc[0]["Close"])
+                else:
+                    before = hist50[hist50.index.date <= d]
+                    if len(before):
+                        nifty50_prices[d_str] = float(before.iloc[-1]["Close"])
+        
+        # Nifty Next 50: ^NSMIDCP
+        ticker_next50 = yf.Ticker("^NSMIDCP")
+        hist_next50 = ticker_next50.history(start=min_d - timedelta(days=7), end=max_d + timedelta(days=1), auto_adjust=True)
+        if hist_next50.empty:
+            ticker_next50 = yf.Ticker("NIFTYJR.NS")
+            hist_next50 = ticker_next50.history(start=min_d - timedelta(days=7), end=max_d + timedelta(days=1), auto_adjust=True)
+        
+        if not hist_next50.empty:
+            for d_str in dates:
+                d = date.fromisoformat(d_str)
+                on_date = hist_next50[hist_next50.index.date == d]
+                if len(on_date):
+                    niftynext50_prices[d_str] = float(on_date.iloc[0]["Close"])
+                else:
+                    before = hist_next50[hist_next50.index.date <= d]
+                    if len(before):
+                        niftynext50_prices[d_str] = float(before.iloc[-1]["Close"])
+    except Exception as e:
+        log.warning("Failed to fetch index data: %s", e)
+    
+    # Simulate hypothetical index investments
+    # Track units held in each index (as if we bought/sold same amounts as portfolio)
+    nifty50_units = 0.0
+    niftynext50_units = 0.0
+    prev_cost = 0.0
+    
+    chart_data = []
+    for i, d_str in enumerate(dates):
+        pv = portfolio_data[i]["value"]
+        pc = portfolio_data[i]["cost"]
+        
+        n50_price = nifty50_prices.get(d_str)
+        nn50_price = niftynext50_prices.get(d_str)
+        
+        # Calculate investment/withdrawal since last date
+        cost_change = pc - prev_cost
+        
+        if cost_change > 0 and n50_price and n50_price > 0:
+            # New investment - buy index units
+            nifty50_units += cost_change / n50_price
+        elif cost_change < 0 and prev_cost > 0:
+            # Withdrawal - sell proportional units
+            withdrawal_ratio = abs(cost_change) / prev_cost
+            nifty50_units *= (1 - withdrawal_ratio)
+        
+        if cost_change > 0 and nn50_price and nn50_price > 0:
+            niftynext50_units += cost_change / nn50_price
+        elif cost_change < 0 and prev_cost > 0:
+            withdrawal_ratio = abs(cost_change) / prev_cost
+            niftynext50_units *= (1 - withdrawal_ratio)
+        
+        # Calculate hypothetical values
+        nifty50_value = nifty50_units * n50_price if n50_price else None
+        niftynext50_value = niftynext50_units * nn50_price if nn50_price else None
+        
+        chart_data.append({
+            "date": d_str,
+            "portfolio_value": round(pv, 2),
+            "portfolio_cost": round(pc, 2),
+            "nifty50_value": round(nifty50_value, 2) if nifty50_value is not None else None,
+            "niftynext50_value": round(niftynext50_value, 2) if niftynext50_value is not None else None,
+            "nifty50_price": round(n50_price, 2) if n50_price else None,
+            "niftynext50_price": round(nn50_price, 2) if nn50_price else None,
+        })
+        
+        prev_cost = pc
+    
+    # Calculate returns based on total invested (cost) vs current value
+    total_invested = portfolio_data[-1]["cost"]
+    last_value = portfolio_data[-1]["value"]
+    last_n50 = chart_data[-1]["nifty50_value"]
+    last_nn50 = chart_data[-1]["niftynext50_value"]
+    
+    def calc_return_vs_cost(current_value, cost):
+        if cost and cost > 0 and current_value is not None:
+            return round((current_value - cost) / cost * 100, 2)
+        return None
+    
+    return jsonify({
+        "data": chart_data,
+        "summary": {
+            "start_date": dates[0],
+            "end_date": dates[-1],
+            "portfolio_end": round(last_value, 2),
+            "portfolio_return_pct": calc_return_vs_cost(last_value, total_invested),
+            "nifty50_end": round(last_n50, 2) if last_n50 else None,
+            "nifty50_return_pct": calc_return_vs_cost(last_n50, total_invested),
+            "niftynext50_end": round(last_nn50, 2) if last_nn50 else None,
+            "niftynext50_return_pct": calc_return_vs_cost(last_nn50, total_invested),
+            "total_invested": round(total_invested, 2),
+        }
+    })
 
 
 @app.route("/api/holdings")
@@ -712,6 +1017,306 @@ def export_csv():
         as_attachment=True,
         download_name=filename,
     )
+
+
+@app.route("/api/mf-list")
+@require_auth
+def mf_list():
+    """Return list of mutual funds user has invested in."""
+    db.init_db()
+    today = date.today()
+    cached = db.get_cached_day_on_or_before(today)
+    
+    mf_funds = []
+    if cached:
+        try:
+            mf_holdings = json.loads(cached.get("mf_holdings_json") or "[]")
+            for h in mf_holdings:
+                sym = h.get("tradingsymbol", "")
+                fund_name = h.get("fund", "") or sym
+                if sym:
+                    mf_funds.append({
+                        "tradingsymbol": sym,
+                        "fund_name": fund_name,
+                        "quantity": h.get("quantity", 0),
+                        "average_price": h.get("average_price", 0),
+                        "last_price": h.get("last_price", 0),
+                        "pnl": h.get("pnl", 0),
+                    })
+        except (json.JSONDecodeError, TypeError):
+            pass
+    
+    return jsonify({"funds": mf_funds})
+
+
+def _get_amfi_scheme_map():
+    """Fetch and parse AMFI NAVAll.txt to build ISIN -> scheme_code mapping."""
+    import requests
+    try:
+        url = 'https://www.amfiindia.com/spages/NAVAll.txt'
+        r = requests.get(url, timeout=30)
+        if r.status_code != 200:
+            return {}
+        
+        scheme_map = {}  # isin -> {code, name, nav}
+        for line in r.text.split('\n'):
+            parts = line.split(';')
+            if len(parts) >= 5 and parts[0].strip().isdigit():
+                code = parts[0].strip()
+                isin1 = parts[1].strip()
+                isin2 = parts[2].strip()
+                name = parts[3].strip()
+                nav = parts[4].strip()
+                
+                if isin1 and isin1 != '-':
+                    scheme_map[isin1] = {'code': code, 'name': name, 'nav': nav}
+                if isin2 and isin2 != '-':
+                    scheme_map[isin2] = {'code': code, 'name': name, 'nav': nav}
+                # Also map by name parts for fuzzy matching
+                scheme_map[code] = {'code': code, 'name': name, 'nav': nav}
+        return scheme_map
+    except Exception as e:
+        log.warning("Failed to fetch AMFI scheme map: %s", str(e))
+        return {}
+
+
+def _fetch_mf_nav_history_mfapi(scheme_code, start_date, today):
+    """Try to fetch NAV history from mfapi.in (free API)."""
+    import requests
+    nav_data = []
+    try:
+        url = f'https://api.mfapi.in/mf/{scheme_code}'
+        r = requests.get(url, timeout=30)
+        if r.status_code == 200:
+            data = r.json()
+            for entry in data.get('data', []):
+                try:
+                    nav_date = datetime.strptime(entry['date'], '%d-%m-%Y').date()
+                    if nav_date >= start_date:
+                        nav_data.append({
+                            'date': nav_date.isoformat(),
+                            'nav': float(entry['nav'])
+                        })
+                except (ValueError, KeyError):
+                    continue
+            nav_data.reverse()  # Oldest first
+    except Exception as e:
+        log.warning("mfapi.in fetch failed: %s", str(e))
+    return nav_data
+
+
+def _fetch_mf_nav_from_db(symbol, start_date):
+    """Build NAV history from our cached MF holdings data."""
+    nav_data = []
+    try:
+        rows = db.get_all_portfolio_days()
+        for row in rows:
+            try:
+                d = datetime.strptime(row['date'], '%Y-%m-%d').date() if isinstance(row['date'], str) else row['date']
+                if d < start_date:
+                    continue
+                mf_holdings = json.loads(row.get('mf_holdings_json') or '[]')
+                for h in mf_holdings:
+                    if h.get('tradingsymbol') == symbol:
+                        nav_data.append({
+                            'date': d.isoformat(),
+                            'nav': float(h.get('last_price', 0))
+                        })
+                        break
+            except (ValueError, KeyError, json.JSONDecodeError):
+                continue
+        # Sort by date
+        nav_data.sort(key=lambda x: x['date'])
+    except Exception as e:
+        log.warning("DB NAV fetch failed: %s", str(e))
+    return nav_data
+
+
+@app.route("/api/mf-nav-history/<symbol>")
+@require_auth
+def mf_nav_history(symbol):
+    """Return NAV history for a mutual fund using multiple data sources."""
+    from datetime import timedelta
+    
+    # Get period from query params (default 1 year)
+    period = request.args.get("period", "1y")
+    
+    # Get the ISIN and fund name from cached holdings
+    db.init_db()
+    today = date.today()
+    cached = db.get_cached_day_on_or_before(today)
+    
+    isin = None
+    fund_name = symbol
+    current_nav = 0
+    if cached:
+        try:
+            mf_holdings = json.loads(cached.get("mf_holdings_json") or "[]")
+            for h in mf_holdings:
+                if h.get("tradingsymbol") == symbol:
+                    isin = h.get("isin", "")
+                    fund_name = h.get("fund", "") or symbol
+                    current_nav = float(h.get("last_price", 0))
+                    break
+        except (json.JSONDecodeError, TypeError):
+            pass
+    
+    # Calculate date range based on period
+    period_days = {
+        "1m": 30, "3m": 90, "6m": 180, "1y": 365, 
+        "2y": 730, "3y": 1095, "all": 3650
+    }
+    start_date = today - timedelta(days=period_days.get(period, 365))
+    
+    nav_data = []
+    data_source = "none"
+    scheme_code = None
+    
+    # Method 1: Try to get scheme code from AMFI and fetch from mfapi.in
+    if isin:
+        scheme_map = _get_amfi_scheme_map()
+        if isin in scheme_map:
+            scheme_code = scheme_map[isin]['code']
+            log.info("Found scheme code %s for ISIN %s", scheme_code, isin)
+            nav_data = _fetch_mf_nav_history_mfapi(scheme_code, start_date, today)
+            if nav_data:
+                data_source = "mfapi"
+    
+    # Method 2: Try mftool with scheme codes lookup
+    if not nav_data:
+        try:
+            from mftool import Mftool
+            mf = Mftool()
+            
+            if not scheme_code:
+                # Try to find scheme by searching
+                scheme_codes = mf.get_scheme_codes()
+                fund_name_upper = fund_name.upper()
+                
+                for code, name in scheme_codes.items():
+                    if code == 'Scheme Code':
+                        continue
+                    name_upper = name.upper()
+                    # Match by fund name keywords
+                    if fund_name_upper in name_upper or name_upper in fund_name_upper:
+                        scheme_code = code
+                        break
+                    # Try matching key parts
+                    fund_words = [w for w in fund_name_upper.split() if len(w) > 3]
+                    if fund_words and all(w in name_upper for w in fund_words[:3]):
+                        scheme_code = code
+                        break
+            
+            if scheme_code:
+                # Try get_scheme_historical_nav_for_dates (more reliable)
+                try:
+                    start_str = start_date.strftime('%d-%m-%Y')
+                    end_str = today.strftime('%d-%m-%Y')
+                    history = mf.get_scheme_historical_nav_for_dates(scheme_code, start_str, end_str)
+                    if history and "data" in history:
+                        for entry in history["data"]:
+                            try:
+                                nav_date = datetime.strptime(entry["date"], "%d-%m-%Y").date()
+                                nav_data.append({
+                                    "date": nav_date.isoformat(),
+                                    "nav": float(entry["nav"])
+                                })
+                            except (ValueError, KeyError):
+                                continue
+                        nav_data.reverse()  # Oldest first
+                        if nav_data:
+                            data_source = "mftool"
+                except Exception as e:
+                    log.warning("mftool historical NAV failed: %s", str(e))
+        except ImportError:
+            log.info("mftool not available")
+        except Exception as e:
+            log.warning("mftool error: %s", str(e))
+    
+    # Method 3: Fallback to our own DB cache (NAV from daily portfolio snapshots)
+    if not nav_data:
+        nav_data = _fetch_mf_nav_from_db(symbol, start_date)
+        if nav_data:
+            data_source = "db_cache"
+    
+    # Add debug info
+    log.info("MF NAV History for %s: source=%s, points=%d, scheme_code=%s", 
+             symbol, data_source, len(nav_data), scheme_code)
+    
+    # Calculate statistics
+    stats = {}
+    if nav_data:
+        navs = [d["nav"] for d in nav_data]
+        current_nav = navs[-1] if navs else 0
+        min_nav = min(navs)
+        max_nav = max(navs)
+        avg_nav = sum(navs) / len(navs)
+        
+        # Calculate percentile of current NAV
+        sorted_navs = sorted(navs)
+        current_percentile = (sorted_navs.index(min(sorted_navs, key=lambda x: abs(x - current_nav))) / len(sorted_navs)) * 100
+        
+        # Calculate distance from min/max
+        range_nav = max_nav - min_nav
+        if range_nav > 0:
+            position_in_range = ((current_nav - min_nav) / range_nav) * 100
+        else:
+            position_in_range = 50
+        
+        # Determine if it's a dip (current NAV in bottom 20% of range)
+        is_dip = position_in_range <= 20
+        is_near_dip = position_in_range <= 35
+        
+        # Calculate percentage dip from max and from average
+        dip_from_max = ((max_nav - current_nav) / max_nav) * 100 if max_nav > 0 else 0
+        dip_from_avg = ((avg_nav - current_nav) / avg_nav) * 100 if avg_nav > 0 else 0
+        gain_from_min = ((current_nav - min_nav) / min_nav) * 100 if min_nav > 0 else 0
+        
+        # Calculate period return (from start of period to now)
+        start_nav = navs[0] if navs else current_nav
+        period_return = ((current_nav - start_nav) / start_nav) * 100 if start_nav > 0 else 0
+        
+        # Calculate returns for different periods
+        period_returns = {}
+        period_configs = [
+            ("1m", 30), ("3m", 90), ("6m", 180), 
+            ("1y", 365), ("2y", 730), ("3y", 1095)
+        ]
+        
+        for period_key, days in period_configs:
+            cutoff = today - timedelta(days=days)
+            period_navs = [d for d in nav_data if datetime.strptime(d["date"], "%Y-%m-%d").date() >= cutoff]
+            if period_navs:
+                p_start = period_navs[0]["nav"]
+                p_return = ((current_nav - p_start) / p_start) * 100 if p_start > 0 else 0
+                period_returns[period_key] = round(p_return, 2)
+            else:
+                period_returns[period_key] = None
+        
+        stats = {
+            "current_nav": round(current_nav, 4),
+            "min_nav": round(min_nav, 4),
+            "max_nav": round(max_nav, 4),
+            "avg_nav": round(avg_nav, 4),
+            "position_in_range": round(position_in_range, 1),
+            "dip_from_max": round(dip_from_max, 2),
+            "dip_from_avg": round(dip_from_avg, 2),
+            "gain_from_min": round(gain_from_min, 2),
+            "period_return": round(period_return, 2),
+            "period_returns": period_returns,
+            "is_dip": is_dip,
+            "is_near_dip": is_near_dip,
+            "days_analyzed": len(navs),
+        }
+    
+    return jsonify({
+        "symbol": symbol,
+        "fund_name": fund_name,
+        "nav_history": nav_data,
+        "stats": stats,
+        "data_source": data_source,
+        "scheme_code": scheme_code,
+    })
 
 
 if __name__ == "__main__":
