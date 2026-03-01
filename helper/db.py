@@ -14,6 +14,32 @@ from config import DB_PATH
 
 log = logging.getLogger(__name__)
 
+
+def _is_trading_day(d: date) -> bool:
+    """Check if a date is likely a trading day (weekday, not major holiday)."""
+    if d.weekday() >= 5:
+        return False
+    nse_holidays_2026 = {
+        date(2026, 1, 26),  # Republic Day
+        date(2026, 3, 10),  # Holi
+        date(2026, 3, 30),  # Id-Ul-Fitr (tentative)
+        date(2026, 4, 2),   # Ram Navami
+        date(2026, 4, 3),   # Good Friday
+        date(2026, 4, 14),  # Dr. Ambedkar Jayanti
+        date(2026, 5, 1),   # Maharashtra Day
+        date(2026, 6, 5),   # Id-Ul-Adha (tentative)
+        date(2026, 7, 6),   # Muharram (tentative)
+        date(2026, 8, 15),  # Independence Day
+        date(2026, 9, 4),   # Milad-un-Nabi (tentative)
+        date(2026, 10, 2),  # Gandhi Jayanti
+        date(2026, 10, 20), # Dussehra
+        date(2026, 11, 5),  # Diwali-Laxmi Puja (tentative)
+        date(2026, 11, 6),  # Diwali-Balipratipada
+        date(2026, 11, 27), # Gurunanak Jayanti
+        date(2026, 12, 25), # Christmas
+    }
+    return d not in nse_holidays_2026
+
 def _turso_sync():
     """Lazy import to avoid loading config/requests when Turso not used."""
     try:
@@ -381,6 +407,12 @@ def _detect_transactions_from_holdings(conn, d: date, holdings: list, mf_holding
     """Compare current holdings with previous day to detect implicit transactions."""
     detected = []
     today_str = d.isoformat()
+
+    # Skip transaction detection on non-trading days (weekends/holidays)
+    # T1 positions on non-trading days are carryovers from the last trading day
+    if not _is_trading_day(d):
+        log.info("Skipping transaction detection for %s (non-trading day)", today_str)
+        return detected
 
     # 1. Primary Detection: T1 holdings (Quantity - Realised Quantity)
     # This catches buys from today/yesterday even without history.
@@ -756,12 +788,25 @@ def get_dates_list(limit: int = 365) -> list:
 
 
 def get_monthly_summary_rows() -> list:
-    """Return the latest snapshot for each month from portfolio_daily."""
+    """Return the latest snapshot for each month from portfolio_daily AND portfolio_archive."""
     conn = get_db()
-    # Use SUBSTR(date, 1, 7) to group by YYYY-MM and pick the latest date in each group
+    # Combine both daily and archive tables, then pick the latest date per month
     query = """
-        SELECT * FROM portfolio_daily 
-        WHERE date IN (SELECT MAX(date) FROM portfolio_daily GROUP BY SUBSTR(date, 1, 7))
+        WITH all_data AS (
+            SELECT date, portfolio_value, portfolio_cost, buy_amount, sell_amount,
+                   month_buy, month_sell, month_per_stock_json, num_holdings,
+                   mf_portfolio_value, mf_portfolio_cost, price_changes_json, created_at,
+                   'daily' as source
+            FROM portfolio_daily
+            UNION ALL
+            SELECT date, portfolio_value, portfolio_cost, buy_amount, sell_amount,
+                   month_buy, month_sell, month_per_stock_json, num_holdings,
+                   mf_portfolio_value, mf_portfolio_cost, price_changes_json, created_at,
+                   'archive' as source
+            FROM portfolio_archive
+        )
+        SELECT * FROM all_data
+        WHERE date IN (SELECT MAX(date) FROM all_data GROUP BY SUBSTR(date, 1, 7))
         ORDER BY date DESC
     """
     rows = conn.execute(query).fetchall()
@@ -924,6 +969,69 @@ def get_monthly_transaction_totals() -> dict:
             total_mf_count += count
     
     return {"months": result, "total_eq_count": total_eq_count, "total_mf_count": total_mf_count}
+
+
+def get_monthly_transaction_details() -> dict:
+    """Return monthly transactions with per-symbol breakdown for reconciliation."""
+    conn = get_db()
+    query = """
+        SELECT 
+            SUBSTR(date, 1, 7) as month,
+            instrument_type,
+            type,
+            tradingsymbol,
+            date,
+            quantity,
+            price,
+            amount,
+            data_json
+        FROM transactions
+        WHERE type IN ('BUY', 'SELL')
+        ORDER BY month DESC, instrument_type, tradingsymbol, date
+    """
+    rows = conn.execute(query).fetchall()
+    conn.close()
+    
+    result = {}
+    for r in rows:
+        month = r["month"]
+        inst_type = r["instrument_type"]
+        tx_type = r["type"]
+        symbol = r["tradingsymbol"]
+        
+        if month not in result:
+            result[month] = {"EQUITY": {}, "MF": {}}
+        
+        if inst_type not in result[month]:
+            result[month][inst_type] = {}
+        
+        if symbol not in result[month][inst_type]:
+            result[month][inst_type][symbol] = {"buy": [], "sell": [], "buy_total": 0, "sell_total": 0}
+        
+        tx_data = {
+            "date": r["date"],
+            "quantity": r["quantity"],
+            "price": r["price"],
+            "amount": r["amount"]
+        }
+        
+        # Try to get fund name from data_json for MF
+        if inst_type == "MF":
+            try:
+                import json
+                data = json.loads(r["data_json"] or "{}")
+                tx_data["fund_name"] = data.get("fund", "")
+            except:
+                tx_data["fund_name"] = ""
+        
+        if tx_type == "BUY":
+            result[month][inst_type][symbol]["buy"].append(tx_data)
+            result[month][inst_type][symbol]["buy_total"] += r["amount"] or 0
+        else:
+            result[month][inst_type][symbol]["sell"].append(tx_data)
+            result[month][inst_type][symbol]["sell_total"] += r["amount"] or 0
+    
+    return result
 
 
 def get_cached_nav(scheme_code: str, start_date: date) -> list:

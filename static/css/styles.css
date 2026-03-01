@@ -332,7 +332,23 @@ body.holdings-compact #mf-holdings-table td:nth-child(9) { display: none; }
 .summary-6col .row { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; padding: 4px 0; }
 .summary-6col .row .k { color: var(--text-muted); }
 .summary-6col .row .v { font-weight: 600; text-decoration: none; }
-.cache-indicator { margin-bottom: 12px; font-size: 0.85rem; color: var(--text-muted); }
+.cache-indicator {
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cache-indicator strong {
+  color: var(--text);
+}
 .comparison-cards {
   display: grid;
   grid-template-columns: 1fr;
@@ -614,8 +630,13 @@ a.nav-link:hover { text-decoration: underline; }
 }
 .distribution-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 20px;
+}
+@media (max-width: 768px) {
+  .distribution-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .distribution-category {
   background: var(--bg);
@@ -726,3 +747,78 @@ a.nav-link:hover { text-decoration: underline; }
 .mf-fund-card.opportunity-neutral { border-left-color: #94a3b8; }
 .mf-fund-card.opportunity-wait { border-left-color: #f97316; }
 .mf-fund-card.opportunity-avoid { border-left-color: #ef4444; }
+
+/* Live Portfolio Page */
+.live-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+@media (max-width: 900px) {
+  .live-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.live-summary-card {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfeff 50%, #eff6ff 100%);
+  border: 1px solid #d1fae5;
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.live-summary-card h4 {
+  margin: 0 0 12px 0;
+  font-size: 0.95rem;
+  color: var(--text);
+  border-bottom: 1px solid #d1fae5;
+  padding-bottom: 8px;
+}
+.live-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 0.9rem;
+}
+.live-row span:first-child {
+  color: var(--text-muted);
+}
+.live-row span:last-child {
+  font-weight: 600;
+}
+
+/* Monthly breakdown expandable rows */
+.month-row.expandable:hover {
+  background: var(--bg-secondary);
+}
+.month-row.expanded {
+  background: var(--bg-secondary);
+  border-bottom: none;
+}
+.expand-icon {
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+.month-row.expanded .expand-icon {
+  color: var(--accent);
+}
+.month-detail-row td {
+  padding: 0 !important;
+  border-top: none !important;
+}
+.month-detail-content {
+  border-top: 1px dashed var(--border);
+  border-bottom: 2px solid var(--border);
+}
+.month-detail-content table {
+  margin: 0;
+  background: var(--card);
+}
+.month-detail-content table th {
+  background: var(--bg-secondary);
+  font-weight: 500;
+}
+.month-detail-content table td,
+.month-detail-content table th {
+  padding: 6px 10px;
+}

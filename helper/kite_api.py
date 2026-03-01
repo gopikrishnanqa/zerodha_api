@@ -215,6 +215,7 @@ def fetch_orders_and_update_activity(session) -> tuple[float, float, float, floa
     month_bought = month_sold = 0.0
     month_per_stock = {}
 
+    # Include equity orders from activity file
     for dk, day_data in activity.items():
         try:
             dt = datetime.strptime(dk, "%Y-%m-%d").date()
@@ -231,6 +232,36 @@ def fetch_orders_and_update_activity(session) -> tuple[float, float, float, floa
                 month_per_stock[sym_key] = month_per_stock.get(sym_key, {"bought": 0, "sold": 0})
                 month_per_stock[sym_key]["bought"] += b
                 month_per_stock[sym_key]["sold"] += s
+
+    # Include MF orders in monthly totals
+    for o in mf_orders:
+        if o.get("status") != "COMPLETE":
+            continue
+        try:
+            order_date_str = o.get("order_timestamp", "").split(" ")[0]
+            if not order_date_str:
+                continue
+            order_date = datetime.strptime(order_date_str, "%Y-%m-%d").date()
+            if order_date < month_start:
+                continue
+            amt = float(o.get("amount") or 0)
+            if amt <= 0:
+                qty = float(o.get("quantity") or 0)
+                price = float(o.get("last_price") or 0)
+                amt = qty * price
+            tt = (o.get("transaction_type") or "").upper()
+            sym = o.get("tradingsymbol", "")
+            key = f"{sym}|MF"
+            if tt == "BUY":
+                month_bought += amt
+                month_per_stock[key] = month_per_stock.get(key, {"bought": 0, "sold": 0})
+                month_per_stock[key]["bought"] += amt
+            elif tt == "SELL":
+                month_sold += amt
+                month_per_stock[key] = month_per_stock.get(key, {"bought": 0, "sold": 0})
+                month_per_stock[key]["sold"] += amt
+        except (ValueError, TypeError):
+            continue
 
     return today_bought, today_sold, month_bought, month_sold, month_per_stock
 

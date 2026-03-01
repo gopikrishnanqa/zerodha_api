@@ -41,6 +41,7 @@ def build_portfolio_payload(
         out = {
             "fromCache": True,
             "date": cached["date"],
+            "created_at": cached.get("created_at"),
             "portfolio_value": float(cached["portfolio_value"]),
             "portfolio_cost": float(cached["portfolio_cost"]),
             "buy_amount": float(cached["buy_amount"]),
@@ -72,6 +73,7 @@ def build_portfolio_payload(
     return {
         "fromCache": False,
         "date": data["date"],
+        "created_at": datetime.now().isoformat(),
         "portfolio_value": data["portfolio_value"],
         "portfolio_cost": data["portfolio_cost"],
         "buy_amount": data["buy_amount"],

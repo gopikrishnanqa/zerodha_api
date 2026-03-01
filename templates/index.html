@@ -32,13 +32,15 @@
     <nav class="nav" id="main-nav" style="display:none;">
       <a href="/" data-page="dashboard">Dashboard</a>
       <a href="/holdings" data-page="holdings">Stocks &amp; MF</a>
+      <a href="/live-portfolio" data-page="live-portfolio">Live Portfolio</a>
       <a href="/performance" data-page="performance">Performance</a>
       <div class="nav-dropdown">
         <span class="nav-dropdown-trigger">Ledger ▾</span>
         <div class="nav-dropdown-menu">
           <a href="/stock-ledger" data-page="stock-ledger">Stock Ledger</a>
           <a href="/mf-ledger" data-page="mf-ledger">MF Ledger</a>
-          <a href="/mf-dip" data-page="mf-dip">MF Dip Points</a>
+          <a href="/mf-dip" data-page="mf-dip">MF Dip Analysis</a>
+          <a href="/mf-compare" data-page="mf-compare">Compare MF</a>
         </div>
       </div>
       <div class="nav-dropdown">
@@ -55,7 +57,10 @@
     </nav>
 
     <div id="page-dashboard" class="page">
-      <div id="cache-indicator" class="cache-indicator" style="display:none;"></div>
+      <div id="cache-indicator" class="cache-indicator" style="display:none;">
+        <span id="cache-text"></span>
+        <button id="btn-refresh-dashboard" class="btn btn-secondary" style="margin-left: 12px; padding: 4px 12px; font-size: 12px;">Refresh Holdings</button>
+      </div>
       <div id="summary-cards" class="summary-cards" style="display:none;"></div>
       <div id="distribution-section" class="distribution-section" style="display:none;"></div>
       <div id="comparison-cards" class="comparison-cards" style="display:none;"></div>
@@ -104,6 +109,14 @@
 
     <div id="page-mf-dip" class="page">
       <div id="mf-dip-content" class="card" style="padding: 16px;"></div>
+    </div>
+
+    <div id="page-mf-compare" class="page">
+      <div id="mf-compare-content" class="card" style="padding: 16px;"></div>
+    </div>
+
+    <div id="page-live-portfolio" class="page">
+      <div id="live-portfolio-content" class="card" style="padding: 16px;"></div>
     </div>
 
     <div id="page-tools" class="page">
@@ -239,32 +252,54 @@
     
     function classifyMutualFund(fundName) {
       const name = (fundName || '').toUpperCase();
-      const result = { assetClass: 'Equity', style: 'Active' };
+      const result = { assetClass: 'Equity', style: 'Active', indexType: null };
       
       // Asset class
       if (name.includes('DEBT') || name.includes('BOND') || name.includes('GILT') || name.includes('LIQUID') || name.includes('OVERNIGHT') || name.includes('MONEY MARKET') || name.includes('CORPORATE BOND') || name.includes('BANKING & PSU') || name.includes('SHORT DURATION') || name.includes('MEDIUM DURATION') || name.includes('LONG DURATION') || name.includes('CREDIT RISK') || name.includes('DYNAMIC BOND') || name.includes('FLOATER')) {
         result.assetClass = 'Debt';
-      } else if (name.includes('GOLD') || name.includes('SILVER')) {
-        result.assetClass = 'Gold/Silver';
+      } else if (name.includes('GOLD')) {
+        result.assetClass = 'Gold';
+      } else if (name.includes('SILVER')) {
+        result.assetClass = 'Silver';
       } else if (name.includes('HYBRID') || name.includes('BALANCED') || name.includes('EQUITY SAVINGS') || name.includes('CONSERVATIVE') || name.includes('AGGRESSIVE') || name.includes('DYNAMIC ASSET') || name.includes('MULTI ASSET') || name.includes('ARBITRAGE')) {
         result.assetClass = 'Hybrid';
       }
       
-      // Style: Passive vs Active
+      // Style: Passive vs Active & Index Type
       if (name.includes('INDEX') || name.includes('ETF') || name.includes('NIFTY') || name.includes('SENSEX') || name.includes('PASSIVE') || name.includes('NEXT 50') || name.includes('MIDCAP 150') || name.includes('SMALLCAP 250')) {
         result.style = 'Passive';
+        // Identify specific index type
+        if (name.includes('NIFTY 50') || name.includes('NIFTY50') || (name.includes('NIFTY') && !name.includes('NEXT') && !name.includes('MIDCAP') && !name.includes('SMALLCAP') && !name.includes('100') && !name.includes('200') && !name.includes('500'))) {
+          result.indexType = 'Nifty 50';
+        } else if (name.includes('NEXT 50') || name.includes('NIFTY NEXT') || name.includes('JUNIOR')) {
+          result.indexType = 'Nifty Next 50';
+        } else if (name.includes('NIFTY 100') || name.includes('NIFTY100')) {
+          result.indexType = 'Nifty 100';
+        } else if (name.includes('MIDCAP 150') || name.includes('MIDCAP150')) {
+          result.indexType = 'Midcap 150';
+        } else if (name.includes('SMALLCAP 250') || name.includes('SMALLCAP250')) {
+          result.indexType = 'Smallcap 250';
+        } else if (name.includes('NIFTY 500') || name.includes('NIFTY500')) {
+          result.indexType = 'Nifty 500';
+        } else if (name.includes('SENSEX')) {
+          result.indexType = 'Sensex';
+        } else {
+          result.indexType = 'Other Index';
+        }
       }
       
       // Equity sub-classification
       if (result.assetClass === 'Equity') {
         if (name.includes('LARGE CAP') || name.includes('LARGECAP') || name.includes('LARGE & MID') || name.includes('BLUECHIP') || name.includes('NIFTY 50') || name.includes('SENSEX')) {
           result.equityType = 'Large Cap';
-        } else if (name.includes('MID CAP') || name.includes('MIDCAP')) {
+        } else if (name.includes('MID CAP') || name.includes('MIDCAP') || name.includes('MIDCAP 150')) {
           result.equityType = 'Mid Cap';
-        } else if (name.includes('SMALL CAP') || name.includes('SMALLCAP')) {
+        } else if (name.includes('SMALL CAP') || name.includes('SMALLCAP') || name.includes('SMALLCAP 250')) {
           result.equityType = 'Small Cap';
         } else if (name.includes('FLEXI') || name.includes('MULTI CAP') || name.includes('MULTICAP')) {
           result.equityType = 'Flexi/Multi Cap';
+        } else if (name.includes('NEXT 50') || name.includes('NIFTY NEXT')) {
+          result.equityType = 'Large Cap';
         } else {
           result.equityType = 'Other Equity';
         }
@@ -277,126 +312,208 @@
       const distEl = document.getElementById('distribution-section');
       if (!distEl) return;
       
-      // Calculate stock distribution
-      const stockDist = { 'Large Cap': 0, 'Mid/Small Cap': 0, 'ETF': 0 };
-      let totalStockValue = 0;
+      // Calculate stock distribution (value and invested)
+      const stockDist = { 'Large Cap': { val: 0, inv: 0 }, 'Mid/Small Cap': { val: 0, inv: 0 }, 'ETF': { val: 0, inv: 0 } };
+      let totalStockValue = 0, totalStockInvested = 0;
       holdings.forEach(h => {
         const val = (h.quantity || 0) * (parseFloat(h.last_price) || 0);
+        const inv = parseFloat(h.invested) || (h.quantity || 0) * (parseFloat(h.average_price) || 0);
         const cat = classifyStock(h.tradingsymbol);
-        stockDist[cat] = (stockDist[cat] || 0) + val;
+        if (!stockDist[cat]) stockDist[cat] = { val: 0, inv: 0 };
+        stockDist[cat].val += val;
+        stockDist[cat].inv += inv;
         totalStockValue += val;
+        totalStockInvested += inv;
       });
       
-      // Calculate MF distribution
-      const mfAssetDist = { 'Equity': 0, 'Debt': 0, 'Gold/Silver': 0, 'Hybrid': 0 };
-      const mfStyleDist = { 'Active': 0, 'Passive': 0 };
-      const mfEquityDist = { 'Large Cap': 0, 'Mid Cap': 0, 'Small Cap': 0, 'Flexi/Multi Cap': 0, 'Other Equity': 0 };
-      let totalMfValue = 0;
+      // Calculate MF distribution with detailed breakdown
+      const mfAssetDist = { 'Equity': { val: 0, inv: 0 }, 'Debt': { val: 0, inv: 0 }, 'Gold': { val: 0, inv: 0 }, 'Silver': { val: 0, inv: 0 }, 'Hybrid': { val: 0, inv: 0 } };
+      const mfStyleDist = { 'Active': { val: 0, inv: 0 }, 'Passive': { val: 0, inv: 0 } };
+      const mfEquityDist = { 'Large Cap': { val: 0, inv: 0 }, 'Mid Cap': { val: 0, inv: 0 }, 'Small Cap': { val: 0, inv: 0 }, 'Flexi/Multi Cap': { val: 0, inv: 0 }, 'Other Equity': { val: 0, inv: 0 } };
+      const indexDist = {};
+      const fundDetails = [];
+      let totalMfValue = 0, totalMfInvested = 0;
       
       mfHoldings.forEach(h => {
         const val = (parseFloat(h.quantity) || 0) * (parseFloat(h.last_price) || 0);
+        const inv = parseFloat(h.invested) || (parseFloat(h.quantity) || 0) * (parseFloat(h.average_price) || 0);
         const fundName = h.fund || h.tradingsymbol || '';
         const cls = classifyMutualFund(fundName);
-        mfAssetDist[cls.assetClass] = (mfAssetDist[cls.assetClass] || 0) + val;
-        mfStyleDist[cls.style] = (mfStyleDist[cls.style] || 0) + val;
+        
+        // Asset class
+        if (!mfAssetDist[cls.assetClass]) mfAssetDist[cls.assetClass] = { val: 0, inv: 0 };
+        mfAssetDist[cls.assetClass].val += val;
+        mfAssetDist[cls.assetClass].inv += inv;
+        
+        // Style
+        mfStyleDist[cls.style].val += val;
+        mfStyleDist[cls.style].inv += inv;
+        
+        // Equity type
         if (cls.equityType) {
-          mfEquityDist[cls.equityType] = (mfEquityDist[cls.equityType] || 0) + val;
+          if (!mfEquityDist[cls.equityType]) mfEquityDist[cls.equityType] = { val: 0, inv: 0 };
+          mfEquityDist[cls.equityType].val += val;
+          mfEquityDist[cls.equityType].inv += inv;
         }
+        
+        // Index breakdown
+        if (cls.indexType) {
+          if (!indexDist[cls.indexType]) indexDist[cls.indexType] = { val: 0, inv: 0 };
+          indexDist[cls.indexType].val += val;
+          indexDist[cls.indexType].inv += inv;
+        }
+        
+        fundDetails.push({ name: fundName, ...cls, val, inv, pnl: val - inv });
         totalMfValue += val;
+        totalMfInvested += inv;
       });
       
       const totalValue = totalStockValue + totalMfValue;
+      const totalInvested = totalStockInvested + totalMfInvested;
       
       // Combined distribution
       const combinedDist = {
-        'Large Cap': stockDist['Large Cap'] + (mfEquityDist['Large Cap'] || 0),
-        'Mid Cap': stockDist['Mid/Small Cap'] + (mfEquityDist['Mid Cap'] || 0),
-        'Small Cap': mfEquityDist['Small Cap'] || 0,
-        'Flexi/Multi': mfEquityDist['Flexi/Multi Cap'] || 0,
-        'ETF': stockDist['ETF'],
-        'Debt': mfAssetDist['Debt'],
-        'Gold/Silver': mfAssetDist['Gold/Silver'],
-        'Hybrid': mfAssetDist['Hybrid'],
-        'Other': (mfEquityDist['Other Equity'] || 0)
+        'Large Cap': { val: stockDist['Large Cap'].val + (mfEquityDist['Large Cap']?.val || 0), inv: stockDist['Large Cap'].inv + (mfEquityDist['Large Cap']?.inv || 0) },
+        'Mid Cap': { val: stockDist['Mid/Small Cap'].val + (mfEquityDist['Mid Cap']?.val || 0), inv: stockDist['Mid/Small Cap'].inv + (mfEquityDist['Mid Cap']?.inv || 0) },
+        'Small Cap': { val: mfEquityDist['Small Cap']?.val || 0, inv: mfEquityDist['Small Cap']?.inv || 0 },
+        'Flexi/Multi': { val: mfEquityDist['Flexi/Multi Cap']?.val || 0, inv: mfEquityDist['Flexi/Multi Cap']?.inv || 0 },
+        'ETF': { val: stockDist['ETF'].val, inv: stockDist['ETF'].inv },
+        'Debt': { val: mfAssetDist['Debt']?.val || 0, inv: mfAssetDist['Debt']?.inv || 0 },
+        'Gold': { val: mfAssetDist['Gold']?.val || 0, inv: mfAssetDist['Gold']?.inv || 0 },
+        'Silver': { val: mfAssetDist['Silver']?.val || 0, inv: mfAssetDist['Silver']?.inv || 0 },
+        'Hybrid': { val: mfAssetDist['Hybrid']?.val || 0, inv: mfAssetDist['Hybrid']?.inv || 0 },
+        'Other': { val: mfEquityDist['Other Equity']?.val || 0, inv: mfEquityDist['Other Equity']?.inv || 0 }
       };
       
       const barColors = {
-        'Large Cap': '#3b82f6',
-        'Mid Cap': '#8b5cf6',
-        'Small Cap': '#ec4899',
-        'Mid/Small Cap': '#a855f7',
-        'Flexi/Multi': '#6366f1',
-        'Flexi/Multi Cap': '#6366f1',
-        'ETF': '#f59e0b',
-        'Equity': '#10b981',
-        'Debt': '#6366f1',
-        'Gold/Silver': '#eab308',
-        'Gold': '#eab308',
-        'Hybrid': '#14b8a6',
-        'Other': '#94a3b8',
-        'Other Equity': '#94a3b8',
-        'Active': '#ef4444',
-        'Passive': '#22c55e'
+        'Large Cap': '#3b82f6', 'Mid Cap': '#8b5cf6', 'Small Cap': '#ec4899', 'Mid/Small Cap': '#a855f7',
+        'Flexi/Multi': '#6366f1', 'Flexi/Multi Cap': '#6366f1', 'ETF': '#f59e0b', 'Equity': '#10b981',
+        'Debt': '#6366f1', 'Gold': '#eab308', 'Silver': '#94a3b8', 'Hybrid': '#14b8a6',
+        'Other': '#64748b', 'Other Equity': '#64748b', 'Active': '#ef4444', 'Passive': '#22c55e',
+        'Nifty 50': '#3b82f6', 'Nifty Next 50': '#8b5cf6', 'Nifty 100': '#06b6d4', 'Midcap 150': '#f59e0b',
+        'Smallcap 250': '#ec4899', 'Nifty 500': '#14b8a6', 'Sensex': '#ef4444', 'Other Index': '#64748b'
       };
       
-      const barHtml = (items, total) => {
+      const barHtml = (items, total, showInv = false) => {
         return Object.entries(items)
-          .filter(([_, val]) => val > 0)
-          .sort((a, b) => b[1] - a[1])
-          .map(([name, val]) => {
+          .filter(([_, d]) => (d.val || d) > 0)
+          .sort((a, b) => (b[1].val || b[1]) - (a[1].val || a[1]))
+          .map(([name, d]) => {
+            const val = d.val || d;
+            const inv = d.inv || 0;
             const pct = total > 0 ? (val / total * 100).toFixed(1) : 0;
             const color = barColors[name] || '#94a3b8';
+            const pnl = val - inv;
+            const pnlPct = inv > 0 ? ((pnl / inv) * 100).toFixed(1) : 0;
+            const pnlClass = pnl >= 0 ? 'pct-up' : 'pct-down';
             return `
               <div class="distribution-bar-item">
                 <div class="distribution-bar-label">
                   <span class="name">${name}</span>
-                  <span><span class="value">${fmtCompact(val)}</span><span class="pct">(${pct}%)</span></span>
+                  <span>
+                    <span class="value">${fmtCompact(val)}</span>
+                    <span class="pct">(${pct}%)</span>
+                    ${showInv && inv > 0 ? `<span class="${pnlClass}" style="font-size: 11px; margin-left: 4px;">${pnl >= 0 ? '+' : ''}${pnlPct}%</span>` : ''}
+                  </span>
                 </div>
                 <div class="distribution-bar"><div class="distribution-bar-fill" style="width: ${pct}%; background: ${color};"></div></div>
               </div>`;
           }).join('');
       };
       
+      // Generate donut chart SVG
+      const donutChart = (items, total, size = 120) => {
+        const entries = Object.entries(items).filter(([_, d]) => (d.val || d) > 0).sort((a, b) => (b[1].val || b[1]) - (a[1].val || a[1]));
+        if (entries.length === 0) return '';
+        let cumAngle = 0;
+        const r = size / 2 - 10;
+        const cx = size / 2, cy = size / 2;
+        const paths = entries.map(([name, d]) => {
+          const val = d.val || d;
+          const pct = val / total;
+          const angle = pct * 360;
+          const startAngle = cumAngle;
+          const endAngle = cumAngle + angle;
+          cumAngle = endAngle;
+          const start = { x: cx + r * Math.cos((startAngle - 90) * Math.PI / 180), y: cy + r * Math.sin((startAngle - 90) * Math.PI / 180) };
+          const end = { x: cx + r * Math.cos((endAngle - 90) * Math.PI / 180), y: cy + r * Math.sin((endAngle - 90) * Math.PI / 180) };
+          const largeArc = angle > 180 ? 1 : 0;
+          const color = barColors[name] || '#94a3b8';
+          if (angle >= 359.9) return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="20"/>`;
+          return `<path d="M${cx},${cy} L${start.x},${start.y} A${r},${r} 0 ${largeArc},1 ${end.x},${end.y} Z" fill="${color}"/>`;
+        }).join('');
+        return `<svg width="${size}" height="${size}" style="display: block; margin: 0 auto;">${paths}<circle cx="${cx}" cy="${cy}" r="${r - 20}" fill="var(--card-bg)"/></svg>`;
+      };
+      
+      // Index funds section
+      const indexHtml = Object.keys(indexDist).length > 0 ? `
+        <div class="distribution-category">
+          <h4>Index Fund Breakdown</h4>
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <div style="flex-shrink: 0;">${donutChart(indexDist, mfStyleDist['Passive'].val)}</div>
+            <div class="distribution-bars" style="flex: 1;">${barHtml(indexDist, mfStyleDist['Passive'].val, true)}</div>
+          </div>
+          <div class="distribution-total">
+            <span>Total Index/Passive</span>
+            <span>${fmtCompact(mfStyleDist['Passive'].val)} <span class="text-muted">(Inv: ${fmtCompact(mfStyleDist['Passive'].inv)})</span></span>
+          </div>
+        </div>
+      ` : '';
+      
       distEl.innerHTML = `
         <h3>Portfolio Distribution</h3>
         <div class="distribution-grid">
           <div class="distribution-category">
             <h4>Stocks by Market Cap</h4>
-            <div class="distribution-bars">
-              ${barHtml(stockDist, totalStockValue)}
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <div style="flex-shrink: 0;">${donutChart(stockDist, totalStockValue)}</div>
+              <div class="distribution-bars" style="flex: 1;">${barHtml(stockDist, totalStockValue, true)}</div>
             </div>
             <div class="distribution-total">
               <span>Total Stocks</span>
-              <span>${fmtCompact(totalStockValue)}</span>
+              <span>${fmtCompact(totalStockValue)} <span class="text-muted">(Inv: ${fmtCompact(totalStockInvested)})</span></span>
             </div>
           </div>
           
           <div class="distribution-category">
             <h4>Mutual Funds by Asset Class</h4>
-            <div class="distribution-bars">
-              ${barHtml(mfAssetDist, totalMfValue)}
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <div style="flex-shrink: 0;">${donutChart(mfAssetDist, totalMfValue)}</div>
+              <div class="distribution-bars" style="flex: 1;">${barHtml(mfAssetDist, totalMfValue, true)}</div>
             </div>
             <div class="distribution-total">
               <span>Total MF</span>
-              <span>${fmtCompact(totalMfValue)}</span>
+              <span>${fmtCompact(totalMfValue)} <span class="text-muted">(Inv: ${fmtCompact(totalMfInvested)})</span></span>
             </div>
           </div>
           
           <div class="distribution-category">
-            <h4>MF: Active vs Passive</h4>
-            <div class="distribution-bars">
-              ${barHtml(mfStyleDist, totalMfValue)}
+            <h4>MF Equity Breakdown</h4>
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <div style="flex-shrink: 0;">${donutChart(mfEquityDist, mfAssetDist['Equity']?.val || 0)}</div>
+              <div class="distribution-bars" style="flex: 1;">${barHtml(mfEquityDist, mfAssetDist['Equity']?.val || 0, true)}</div>
             </div>
           </div>
           
           <div class="distribution-category">
-            <h4>Combined Allocation</h4>
-            <div class="distribution-bars">
-              ${barHtml(combinedDist, totalValue)}
+            <h4>Active vs Passive</h4>
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <div style="flex-shrink: 0;">${donutChart(mfStyleDist, totalMfValue)}</div>
+              <div class="distribution-bars" style="flex: 1;">${barHtml(mfStyleDist, totalMfValue, true)}</div>
             </div>
-            <div class="distribution-total">
-              <span>Total Portfolio</span>
-              <span>${fmtCompact(totalValue)}</span>
+          </div>
+          
+          ${indexHtml}
+          
+          <div class="distribution-category" style="grid-column: 1 / -1;">
+            <h4>Combined Portfolio Allocation</h4>
+            <div style="display: flex; align-items: center; gap: 24px;">
+              <div style="flex-shrink: 0;">${donutChart(combinedDist, totalValue, 150)}</div>
+              <div class="distribution-bars" style="flex: 1;">${barHtml(combinedDist, totalValue, true)}</div>
+            </div>
+            <div class="distribution-total" style="margin-top: 12px; font-size: 15px;">
+              <span><strong>Total Portfolio</strong></span>
+              <span><strong>${fmtCompact(totalValue)}</strong> <span class="text-muted">(Invested: ${fmtCompact(totalInvested)})</span></span>
             </div>
           </div>
         </div>
@@ -524,6 +641,8 @@
       else if (pageId === 'mf-ledger') loadMfLedgerPage();
       else if (pageId === 'performance') loadPerformancePage();
       else if (pageId === 'mf-dip') loadMfDipPage();
+      else if (pageId === 'mf-compare') loadMfComparePage();
+      else if (pageId === 'live-portfolio') loadLivePortfolioPage();
       else if (pageId === 'tools') loadToolsPage();
     }
 
@@ -564,10 +683,22 @@
 
         document.getElementById('btn-export').disabled = holdings.length === 0 && mfHoldings.length === 0;
 
-        cacheEl.innerHTML = data.fromCache
-          ? `Data from cache for ${data.date}. Stocks + MF (${mfHoldings.length} fund(s)). Click "Refresh data" to fetch fresh from Zerodha.`
-          : `Live data fetched for ${data.date}.`;
-        cacheEl.style.display = 'block';
+        const refreshedAt = data.created_at ? new Date(data.created_at).toLocaleString() : (data.date || 'Unknown');
+        const cacheText = document.getElementById('cache-text');
+        if (cacheText) {
+          cacheText.innerHTML = data.fromCache
+            ? `<strong>Cached:</strong> ${data.date} &bull; ${holdings.length} stocks, ${mfHoldings.length} MFs &bull; <span class="text-muted">Last updated: ${refreshedAt}</span>`
+            : `<strong>Live:</strong> ${data.date} &bull; ${holdings.length} stocks, ${mfHoldings.length} MFs &bull; <span class="text-muted">Fetched: ${new Date().toLocaleTimeString()}</span>`;
+        } else {
+          cacheEl.innerHTML = data.fromCache
+            ? `Data from cache for ${data.date}. ${holdings.length} stocks, ${mfHoldings.length} MFs. Last updated: ${refreshedAt}`
+            : `Live data fetched for ${data.date}. ${holdings.length} stocks, ${mfHoldings.length} MFs.`;
+        }
+        cacheEl.style.display = 'flex';
+        cacheEl.style.alignItems = 'center';
+        cacheEl.style.justifyContent = 'space-between';
+        cacheEl.style.flexWrap = 'wrap';
+        cacheEl.style.gap = '8px';
         document.getElementById('main-nav').style.display = 'flex';
         const mfValue = data.mf_portfolio_value ?? mfHoldings.reduce((s, h) => s + (parseFloat(h.quantity) || 0) * (parseFloat(h.last_price) || 0), 0);
         const totalVal = (data.portfolio_value ?? holdings.reduce((s, h) => s + (h.quantity || 0) * (parseFloat(h.last_price) || 0), 0)) + mfValue;
@@ -603,9 +734,17 @@
         const pnlPct = (cost, pnl) => (cost > 0 ? ((pnl / cost) * 100).toFixed(2) + '%' : '—');
         const pnlCls = (pnl) => pnl >= 0 ? 'pct-up' : 'pct-down';
 
-        const totalPnl = totalVal - totalCost;
-        const eqPnl = eqValue - eqCost;
-        const mfPnl = mfValue - mfCost;
+        // Use API's pnl field when available (more accurate from Zerodha)
+        const apiEqPnl = holdings.reduce((s, h) => s + (parseFloat(h.pnl) || 0), 0);
+        const apiMfPnl = mfHoldings.reduce((s, h) => s + (parseFloat(h.pnl) || 0), 0);
+        // Use API pnl if non-zero, otherwise calculate from value - cost
+        const eqPnl = apiEqPnl !== 0 ? apiEqPnl : (eqValue - eqCost);
+        const mfPnl = apiMfPnl !== 0 ? apiMfPnl : (mfValue - mfCost);
+        const totalPnl = eqPnl + mfPnl;
+        // Derive invested from value - pnl (more accurate when using API pnl)
+        const derivedEqCost = apiEqPnl !== 0 ? (eqValue - apiEqPnl) : eqCost;
+        const derivedMfCost = apiMfPnl !== 0 ? (mfValue - apiMfPnl) : mfCost;
+        const derivedTotalCost = derivedEqCost + derivedMfCost;
         const lastMonthPnl = lastMonthValue - lastMonthCost;
         const fromLastMonthInvested = lastMonthValueDate != null ? totalCost - lastMonthCost : 0;
         const fromLastMonthValue = lastMonthValueDate != null ? totalVal - lastMonthValue : 0;
@@ -623,13 +762,16 @@
           </div>`;
         const summary6ColsHtml = `
           <div class="summary-6cols">
-            ${col('Current (Total)', totalCost, totalVal, totalPnl, pnlPct(totalCost, totalPnl))}
-            ${col('Current (Stocks)', eqCost, eqValue, eqPnl, pnlPct(eqCost, eqPnl))}
-            ${col('Current (MFs)', mfCost, mfValue, mfPnl, pnlPct(mfCost, mfPnl))}
+            ${col('Current (Total)', derivedTotalCost, totalVal, totalPnl, pnlPct(derivedTotalCost, totalPnl))}
+            ${col('Current (Stocks)', derivedEqCost, eqValue, eqPnl, pnlPct(derivedEqCost, eqPnl))}
+            ${col('Current (MFs)', derivedMfCost, mfValue, mfPnl, pnlPct(derivedMfCost, mfPnl))}
             ${lastMonthValueDate ? col('Last month (as of ' + lastMonthValueDate + ')', lastMonthCost, lastMonthValue, lastMonthPnl, pnlPct(lastMonthCost, lastMonthPnl)) : '<div class="summary-6col"><div class="col-title">Last month</div><div class="row"><span class="k">—</span><span class="v text-muted">No data</span></div></div>'}
             ${lastMonthValueDate ? col('From last month → now', fromLastMonthInvested, fromLastMonthValue, fromLastMonthPnl, pnlPct(fromLastMonthInvested, fromLastMonthPnl), 'Change in value') : '<div class="summary-6col"><div class="col-title">From last month</div><div class="row"><span class="k">—</span><span class="v text-muted">No data</span></div></div>'}
             ${lastYearValueDate ? col('This year so far (since ' + lastYearValueDate + ')', ytdInvested, totalVal, ytdPnl, pnlPct(ytdInvested, ytdPnl)) : '<div class="summary-6col"><div class="col-title">This year so far</div><div class="row"><span class="k">—</span><span class="v text-muted">No data</span></div></div>'}
-          </div>`;
+          </div>
+          <p class="text-muted" style="font-size: 0.75rem; margin-top: 8px;">
+            Note: Values may differ slightly from Zerodha Console. Invested = qty × avg price (excludes stamp duty/charges). MF NAVs may have timing differences.
+          </p>`;
 
         const allZero = (monthB + monthS + todayB + todayS) === 0;
         const previousMonthCard = prevMonthName ? `
@@ -893,10 +1035,11 @@
       const el = document.getElementById('monthly-content');
       el.innerHTML = '<p>Loading monthly summary...</p>';
       try {
-        const [r1, r2, r3] = await Promise.all([
+        const [r1, r2, r3, r4] = await Promise.all([
           fetch('/api/summary-by-date', { credentials: 'same-origin', cache: 'no-store' }),
           fetch('/api/cache-status', { credentials: 'same-origin', cache: 'no-store' }),
-          fetch('/api/monthly-transactions', { credentials: 'same-origin', cache: 'no-store' })
+          fetch('/api/monthly-transactions', { credentials: 'same-origin', cache: 'no-store' }),
+          fetch('/api/monthly-transactions-detail', { credentials: 'same-origin', cache: 'no-store' })
         ]);
         if (r1.status === 401 || r2.status === 401) {
           el.innerHTML = '<p class="text-muted">Please <strong>connect with Zerodha</strong> on the Dashboard first to view the summary. This page uses your saved portfolio data.</p>';
@@ -905,8 +1048,10 @@
         const d1 = await r1.json().catch(() => ({}));
         const d2 = await r2.json().catch(() => ({}));
         const d3 = await r3.json().catch(() => ({}));
+        const d4 = await r4.json().catch(() => ({}));
         const rows = d1.rows || d2.rows || [];
         const txTotals = d3.monthly_totals || {};
+        const txDetails = d4.details || {};
         const totalEqCount = d3.total_eq_count || 0;
         const totalMfCount = d3.total_mf_count || 0;
         if (rows.length === 0) {
@@ -928,10 +1073,10 @@
           const cls = delta >= 0 ? 'pct-up' : 'pct-down';
           return '<span class="' + cls + '">' + (delta >= 0 ? '+' : '') + fmt(delta) + (pct ? ' (' + (delta >= 0 ? '+' : '') + pct + '%)' : '') + '</span>';
         };
-        let tableHtml = '<h3 style="margin:0 0 12px;">Summary by stored date (Stocks vs MF vs Nifty 50)</h3>' +
-          '<p class="text-muted" style="font-size:0.85rem; margin-bottom: 16px;">Category-wise: <strong>Stocks (Equity)</strong>, <strong>Mutual Funds (MF)</strong>, <strong>Nifty 50</strong>. Total invested = EQ cost + MF cost. Change vs prev = total value change from previous stored date. Stocks Δ / MF Δ = category-wise growth. If a date shows <strong>(EQ only)</strong>, that snapshot has no MF data—re-import from an Excel with both Equity and Mutual Funds sheets for correct totals.</p>' +
+        let tableHtml = '<h3 style="margin:0 0 12px;">Summary by stored date (Stocks vs MF)</h3>' +
+          '<p class="text-muted" style="font-size:0.85rem; margin-bottom: 16px;">Category-wise: <strong>Stocks (Equity)</strong>, <strong>Mutual Funds (MF)</strong>. Total invested = EQ cost + MF cost. Change vs prev = total value change from previous stored date. Stocks Δ / MF Δ = category-wise growth. Month data from transaction ledgers.</p>' +
           '<div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr>' +
-          '<th>Date</th><th>Stocks (EQ) Value</th><th>MF Value</th><th>Total</th><th>Total invested</th><th>Change vs prev</th><th>Stocks Δ</th><th>MF Δ</th><th>Month Invested</th><th>Month Sold</th><th>Nifty 50</th><th>vs Nifty</th>' +
+          '<th>Date</th><th>Stocks Value</th><th>MF Value</th><th>Total</th><th>Invested</th><th>Change vs prev</th><th>Stocks Δ</th><th>MF Δ</th><th>EQ Buy</th><th>EQ Sell</th><th>MF Buy</th><th>MF Sell</th>' +
           '</tr></thead><tbody>' +
           rows.map((r, i) => {
             const total = (r.portfolio_value || 0) + (r.mf_portfolio_value || 0);
@@ -946,17 +1091,18 @@
               const pct = prevTotal > 0 ? ((change / prevTotal) * 100).toFixed(2) : '';
               changeCell = '<span class="' + (change >= 0 ? 'pct-up' : 'pct-down') + '">' + (change >= 0 ? '+' : '') + fmt(change) + (pct ? ' (' + (change >= 0 ? '+' : '') + pct + '%)' : '') + '</span>';
             }
-            const nifty = niftyCloses[r.date];
-            let vsNifty = '–';
-            if (nifty != null && firstNifty != null && firstNifty > 0) {
-              const pct = (((nifty - firstNifty) / firstNifty) * 100).toFixed(2);
-              vsNifty = pct >= 0 ? '+' + pct + '%' : pct + '%';
-            }
             const mfZero = (r.mf_portfolio_value || 0) === 0;
             const prevHasMf = prev && (prev.mf_portfolio_value || 0) > 0;
             const nextHasMf = i > 0 && (rows[i - 1].mf_portfolio_value || 0) > 0;
             const incompleteNote = mfZero && (prevHasMf || nextHasMf) ? ' <small class="text-muted" title="This date has no MF data; change vs prev may be misleading">(EQ only)</small>' : '';
-            return '<tr><td>' + r.date + incompleteNote + '</td><td>' + fmt(r.portfolio_value) + '</td><td>' + fmt(r.mf_portfolio_value) + '</td><td><strong>' + fmt(total) + '</strong></td><td>' + fmt(invested) + '</td><td>' + changeCell + '</td><td>' + fmtDelta(stocksDelta, prev ? prev.portfolio_value : 0) + '</td><td>' + fmtDelta(mfDelta, prev ? prev.mf_portfolio_value : 0) + '</td><td class="pct-up">' + fmt(r.month_buy) + '</td><td class="pct-down">' + fmt(r.month_sell) + '</td><td>' + (nifty != null ? nifty.toLocaleString() : '–') + '</td><td>' + vsNifty + '</td></tr>';
+            // Use transaction totals for the month instead of snapshot values
+            const ym = r.date.substring(0, 7);
+            const tx = txTotals[ym] || { EQUITY: { buy: 0, sell: 0 }, MF: { buy: 0, sell: 0 } };
+            const eqBuy = tx.EQUITY?.buy || 0;
+            const eqSell = tx.EQUITY?.sell || 0;
+            const mfBuy = tx.MF?.buy || 0;
+            const mfSell = tx.MF?.sell || 0;
+            return '<tr><td>' + r.date + incompleteNote + '</td><td>' + fmt(r.portfolio_value) + '</td><td>' + fmt(r.mf_portfolio_value) + '</td><td><strong>' + fmt(total) + '</strong></td><td>' + fmt(invested) + '</td><td>' + changeCell + '</td><td>' + fmtDelta(stocksDelta, prev ? prev.portfolio_value : 0) + '</td><td>' + fmtDelta(mfDelta, prev ? prev.mf_portfolio_value : 0) + '</td><td class="pct-up">' + fmt(eqBuy) + '</td><td class="pct-down">' + fmt(eqSell) + '</td><td class="pct-up">' + fmt(mfBuy) + '</td><td class="pct-down">' + fmt(mfSell) + '</td></tr>';
           }).join('') + '</tbody></table></div>';
 
         // Monthly summary: group by YYYY-MM, take last stored date in each month
@@ -1007,9 +1153,9 @@
             '</div></div>';
           
           monthHtml += '<h3 style="margin:24px 0 12px;">Monthly Breakdown (Stocks + MF)</h3>' +
-            '<p class="text-muted" style="font-size:0.85rem; margin-bottom: 16px;">Transaction data from orders. Stocks and MF shown separately. </p>' +
-            '<div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr>' +
-            '<th>Month</th><th>Total Value</th><th>Growth</th><th>Stocks Buy</th><th>Stocks Sell</th><th>MF Buy</th><th>MF Sell</th><th>Net Total</th>' +
+            '<p class="text-muted" style="font-size:0.85rem; margin-bottom: 16px;">Transaction data from orders. Click on a row to expand and see item-wise breakdown for bank reconciliation.</p>' +
+            '<div class="table-wrap"><table style="font-size: 0.85rem;" id="monthly-breakdown-table"><thead><tr>' +
+            '<th></th><th>Month</th><th>Total Value</th><th>Growth</th><th>Stocks Buy</th><th>Stocks Sell</th><th>MF Buy</th><th>MF Sell</th><th>Net Total</th>' +
             '</tr></thead><tbody>';
           months.forEach((ym, idx) => {
             const r = byMonth[ym];
@@ -1031,16 +1177,79 @@
             const monthNet = (eqBuy + mfBuy) - (eqSell + mfSell);
             const monthLabel = new Date(ym + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
             const netClass = monthNet >= 0 ? 'pct-up' : 'pct-down';
-            monthHtml += '<tr><td><strong>' + monthLabel + '</strong></td><td><strong>' + fmt(total) + '</strong></td><td>' + growthCell + '</td>' +
+            const hasDetails = txDetails[ym] && (Object.keys(txDetails[ym].EQUITY || {}).length > 0 || Object.keys(txDetails[ym].MF || {}).length > 0);
+            monthHtml += '<tr class="month-row' + (hasDetails ? ' expandable' : '') + '" data-month="' + ym + '" style="cursor: ' + (hasDetails ? 'pointer' : 'default') + ';">' +
+              '<td style="width: 24px; text-align: center;">' + (hasDetails ? '<span class="expand-icon">▶</span>' : '') + '</td>' +
+              '<td><strong>' + monthLabel + '</strong></td><td><strong>' + fmt(total) + '</strong></td><td>' + growthCell + '</td>' +
               '<td class="pct-up">' + (eqBuy > 0 ? '+' + fmt(eqBuy) : '–') + '</td>' +
               '<td class="pct-down">' + (eqSell > 0 ? '-' + fmt(eqSell) : '–') + '</td>' +
               '<td class="pct-up">' + (mfBuy > 0 ? '+' + fmt(mfBuy) : '–') + '</td>' +
               '<td class="pct-down">' + (mfSell > 0 ? '-' + fmt(mfSell) : '–') + '</td>' +
               '<td class="' + netClass + '"><strong>' + (monthNet >= 0 ? '+' : '') + fmt(monthNet) + '</strong></td></tr>';
+            
+            // Add hidden detail row
+            if (hasDetails) {
+              const details = txDetails[ym];
+              let detailHtml = '<div class="month-detail-content" style="padding: 12px; background: var(--bg-secondary);">';
+              
+              // Equity details
+              const eqSymbols = Object.keys(details.EQUITY || {}).sort();
+              if (eqSymbols.length > 0) {
+                detailHtml += '<div style="margin-bottom: 16px;"><strong style="color: var(--text-primary);">Stocks (Equity)</strong>';
+                detailHtml += '<table style="font-size: 0.8rem; margin-top: 8px; width: 100%;"><thead><tr><th>Symbol</th><th>Type</th><th>Date</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead><tbody>';
+                eqSymbols.forEach(sym => {
+                  const symData = details.EQUITY[sym];
+                  symData.buy.forEach(tx => {
+                    detailHtml += '<tr><td>' + sym + '</td><td class="pct-up">BUY</td><td>' + tx.date + '</td><td>' + tx.quantity + '</td><td>' + fmt(tx.price) + '</td><td class="pct-up">+' + fmt(tx.amount) + '</td></tr>';
+                  });
+                  symData.sell.forEach(tx => {
+                    detailHtml += '<tr><td>' + sym + '</td><td class="pct-down">SELL</td><td>' + tx.date + '</td><td>' + tx.quantity + '</td><td>' + fmt(tx.price) + '</td><td class="pct-down">-' + fmt(tx.amount) + '</td></tr>';
+                  });
+                });
+                detailHtml += '</tbody></table></div>';
+              }
+              
+              // MF details
+              const mfSymbols = Object.keys(details.MF || {}).sort();
+              if (mfSymbols.length > 0) {
+                detailHtml += '<div><strong style="color: var(--text-primary);">Mutual Funds</strong>';
+                detailHtml += '<table style="font-size: 0.8rem; margin-top: 8px; width: 100%;"><thead><tr><th>Fund</th><th>Type</th><th>Date</th><th>Units</th><th>NAV</th><th>Amount</th></tr></thead><tbody>';
+                mfSymbols.forEach(sym => {
+                  const symData = details.MF[sym];
+                  const fundName = symData.buy[0]?.fund_name || symData.sell[0]?.fund_name || sym;
+                  const displayName = fundName.length > 40 ? fundName.substring(0, 37) + '...' : fundName;
+                  symData.buy.forEach(tx => {
+                    detailHtml += '<tr><td title="' + (tx.fund_name || sym) + '">' + displayName + '</td><td class="pct-up">BUY</td><td>' + tx.date + '</td><td>' + (tx.quantity || 0).toFixed(3) + '</td><td>' + fmt(tx.price) + '</td><td class="pct-up">+' + fmt(tx.amount) + '</td></tr>';
+                  });
+                  symData.sell.forEach(tx => {
+                    detailHtml += '<tr><td title="' + (tx.fund_name || sym) + '">' + displayName + '</td><td class="pct-down">SELL</td><td>' + tx.date + '</td><td>' + (tx.quantity || 0).toFixed(3) + '</td><td>' + fmt(tx.price) + '</td><td class="pct-down">-' + fmt(tx.amount) + '</td></tr>';
+                  });
+                });
+                detailHtml += '</tbody></table></div>';
+              }
+              
+              detailHtml += '</div>';
+              monthHtml += '<tr class="month-detail-row" data-month="' + ym + '" style="display: none;"><td colspan="9">' + detailHtml + '</td></tr>';
+            }
           });
           monthHtml += '</tbody></table></div>';
         }
         el.innerHTML = tableHtml + monthHtml;
+        
+        // Add expand/collapse event listeners for monthly breakdown
+        document.querySelectorAll('.month-row.expandable').forEach(row => {
+          row.addEventListener('click', function() {
+            const month = this.dataset.month;
+            const detailRow = document.querySelector('.month-detail-row[data-month="' + month + '"]');
+            const icon = this.querySelector('.expand-icon');
+            if (detailRow) {
+              const isHidden = detailRow.style.display === 'none';
+              detailRow.style.display = isHidden ? 'table-row' : 'none';
+              if (icon) icon.textContent = isHidden ? '▼' : '▶';
+              this.classList.toggle('expanded', isHidden);
+            }
+          });
+        });
       } catch (e) {
         el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
       }
@@ -1777,9 +1986,443 @@
     }
 
     let mfDipAllFunds = [];
-    
+
     let mfDipActiveTab = 'auto';
+
+    // ============ Live Portfolio Page ============
+    async function loadLivePortfolioPage() {
+      const el = document.getElementById('live-portfolio-content');
+      if (!el) return;
+      el.innerHTML = '<div class="empty-state"><p>Fetching live data from Zerodha...</p></div>';
+
+      try {
+        const res = await fetch('/api/live-portfolio', { credentials: 'same-origin', cache: 'no-store' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch live portfolio');
+
+        const fmt = (n) => new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
+        const pnlCls = (v) => v >= 0 ? 'pct-up' : 'pct-down';
+        const pnlSign = (v) => v >= 0 ? '+' : '';
+
+        // Get manual equity invested override from localStorage
+        const savedEqInvested = localStorage.getItem('zerodha_eq_invested');
+        let eqInvested = data.equity.invested;
+        let eqPnl = data.equity.pnl;
+        let useManualInvested = false;
+        
+        if (savedEqInvested) {
+          const parsed = parseFloat(savedEqInvested);
+          if (!isNaN(parsed) && parsed > 0) {
+            eqInvested = parsed;
+            eqPnl = data.equity.value - eqInvested;
+            useManualInvested = true;
+          }
+        }
+        
+        const eqPnlPct = eqInvested > 0 ? ((eqPnl / eqInvested) * 100).toFixed(2) : '0.00';
+        
+        // Recalculate total with adjusted equity
+        const totalInvested = eqInvested + data.mf.invested;
+        const totalValue = data.equity.value + data.mf.value;
+        const totalPnl = totalValue - totalInvested;
+        const totalPnlPct = totalInvested > 0 ? ((totalPnl / totalInvested) * 100).toFixed(2) : '0.00';
+
+        const eqData = { invested: eqInvested, value: data.equity.value, pnl: eqPnl, pnl_pct: eqPnlPct };
+        const totalData = { invested: totalInvested, value: totalValue, pnl: totalPnl, pnl_pct: totalPnlPct };
+
+        const summaryCard = (title, d, showEdit = false) => `
+          <div class="live-summary-card">
+            <h4>${title}${showEdit ? ' <button class="btn-edit-invested" style="font-size: 11px; padding: 2px 6px; margin-left: 8px;">Edit</button>' : ''}</h4>
+            <div class="live-row"><span>Invested</span><span>${fmt(d.invested)}</span></div>
+            <div class="live-row"><span>Present Value</span><span>${fmt(d.value)}</span></div>
+            <div class="live-row"><span>Unrealized P&L</span><span class="${pnlCls(d.pnl)}">${pnlSign(d.pnl)}${fmt(d.pnl)} (${pnlSign(d.pnl_pct)}${d.pnl_pct}%)</span></div>
+          </div>
+        `;
+
+        const eqHoldings = data.equity.holdings || [];
+        const mfHoldings = data.mf.holdings || [];
+
+        // Equity table
+        let eqTable = `
+          <h4 style="margin-top: 24px;">Equity Holdings (${eqHoldings.length})</h4>
+          <div class="table-wrap"><table style="font-size: 0.85rem;">
+            <thead><tr>
+              <th>Symbol</th><th>Qty</th><th>T1</th><th>Avg Price</th><th>LTP</th><th>Invested</th><th>Current Value</th><th>P&L</th><th>P&L %</th><th>Day Change</th>
+            </tr></thead>
+            <tbody>
+        `;
+        for (const h of eqHoldings) {
+          const qty = parseFloat(h.quantity || 0);  // Don't include t1_quantity to match Zerodha
+          const t1 = parseFloat(h.t1_quantity || 0);
+          const avg = parseFloat(h.average_price || 0);
+          const ltp = parseFloat(h.last_price || 0);
+          const pnl = parseFloat(h.pnl || 0);
+          const invested = qty * avg;
+          const value = qty * ltp;
+          const pnlPct = invested > 0 ? (pnl / invested * 100) : 0;
+          const dayChange = parseFloat(h.day_change || 0);
+          const dayChangePct = parseFloat(h.day_change_percentage || 0);
+          eqTable += `<tr>
+            <td><strong>${h.tradingsymbol}</strong></td>
+            <td>${qty}</td>
+            <td>${t1 > 0 ? t1 : '-'}</td>
+            <td>${fmt(avg)}</td>
+            <td>${fmt(ltp)}</td>
+            <td>${fmt(invested)}</td>
+            <td>${fmt(value)}</td>
+            <td class="${pnlCls(pnl)}">${pnlSign(pnl)}${fmt(pnl)}</td>
+            <td class="${pnlCls(pnlPct)}">${pnlSign(pnlPct)}${pnlPct.toFixed(2)}%</td>
+            <td class="${pnlCls(dayChange)}">${pnlSign(dayChange)}${fmt(dayChange)} (${pnlSign(dayChangePct)}${dayChangePct.toFixed(2)}%)</td>
+          </tr>`;
+        }
+        eqTable += '</tbody></table></div>';
+
+        // MF table
+        let mfTable = `
+          <h4 style="margin-top: 24px;">Mutual Fund Holdings (${mfHoldings.length})</h4>
+          <div class="table-wrap"><table style="font-size: 0.85rem;">
+            <thead><tr>
+              <th>Fund</th><th>Units</th><th>Avg NAV</th><th>Current NAV</th><th>Invested</th><th>Current Value</th><th>P&L</th><th>P&L %</th>
+            </tr></thead>
+            <tbody>
+        `;
+        for (const h of mfHoldings) {
+          const qty = parseFloat(h.quantity || 0);
+          const avg = parseFloat(h.average_price || 0);
+          const ltp = parseFloat(h.last_price || 0);
+          const pnl = parseFloat(h.pnl || 0);
+          const invested = qty * avg;
+          const value = qty * ltp;
+          const calcPnl = pnl !== 0 ? pnl : (value - invested);
+          const pnlPct = invested > 0 ? (calcPnl / invested * 100) : 0;
+          const fundName = h.fund || h.tradingsymbol || '?';
+          mfTable += `<tr>
+            <td><strong>${fundName.length > 50 ? fundName.substring(0, 50) + '...' : fundName}</strong></td>
+            <td>${qty.toFixed(3)}</td>
+            <td>${fmt(avg)}</td>
+            <td>${fmt(ltp)}</td>
+            <td>${fmt(invested)}</td>
+            <td>${fmt(value)}</td>
+            <td class="${pnlCls(calcPnl)}">${pnlSign(calcPnl)}${fmt(calcPnl)}</td>
+            <td class="${pnlCls(pnlPct)}">${pnlSign(pnlPct)}${pnlPct.toFixed(2)}%</td>
+          </tr>`;
+        }
+        mfTable += '</tbody></table></div>';
+
+        const manualNote = useManualInvested 
+          ? `<span style="color: #22c55e; font-weight: 500;">Using your saved Equity Invested: ${fmt(eqInvested)}</span> <button id="btn-clear-invested" style="font-size: 11px; padding: 2px 6px;">Clear</button>`
+          : `<span style="color: #f59e0b;">Equity Invested from API (may differ by ~0.8% from Console due to charges)</span>`;
+
+        el.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+            <h3 style="margin: 0;">Live Portfolio (from Zerodha API)</h3>
+            <button id="btn-refresh-live" class="btn btn-primary" style="padding: 8px 16px;">Refresh</button>
+          </div>
+          <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 16px;">
+            Data fetched at: <strong>${new Date(data.fetched_at).toLocaleString()}</strong><br>
+            ${manualNote}
+          </p>
+          <div class="live-summary-grid">
+            ${summaryCard('Total Portfolio', totalData)}
+            ${summaryCard('Equity (' + data.equity.count + ' stocks)', eqData, true)}
+            ${summaryCard('Mutual Funds (' + data.mf.count + ' funds)', data.mf)}
+          </div>
+          ${eqTable}
+          ${mfTable}
+        `;
+
+        document.getElementById('btn-refresh-live')?.addEventListener('click', () => {
+          loadLivePortfolioPage();
+        });
+
+        document.querySelector('.btn-edit-invested')?.addEventListener('click', () => {
+          const currentVal = localStorage.getItem('zerodha_eq_invested') || '';
+          const newVal = prompt('Enter Equity Invested amount from Zerodha Console:', currentVal);
+          if (newVal !== null) {
+            const parsed = parseFloat(newVal.replace(/,/g, ''));
+            if (!isNaN(parsed) && parsed > 0) {
+              localStorage.setItem('zerodha_eq_invested', parsed.toString());
+              loadLivePortfolioPage();
+            } else if (newVal.trim() === '') {
+              localStorage.removeItem('zerodha_eq_invested');
+              loadLivePortfolioPage();
+            } else {
+              alert('Please enter a valid number');
+            }
+          }
+        });
+
+        document.getElementById('btn-clear-invested')?.addEventListener('click', () => {
+          localStorage.removeItem('zerodha_eq_invested');
+          loadLivePortfolioPage();
+        });
+
+      } catch (err) {
+        el.innerHTML = `<div class="alert alert-error">${err.message || 'Failed to load live portfolio'}</div>`;
+      }
+    }
+
+    // ============ MF Compare Page ============
+    let mfCompareChart = null;
     
+    async function loadMfComparePage() {
+      const el = document.getElementById('mf-compare-content');
+      if (!el) return;
+      el.innerHTML = '<p>Loading mutual funds...</p>';
+      
+      try {
+        const r = await fetch('/api/mf-list', { credentials: 'same-origin' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Failed to load MF list');
+        let funds = d.funds || [];
+        if (funds.length === 0) {
+          el.innerHTML = '<p class="text-muted">No mutual funds in your portfolio.</p>';
+          return;
+        }
+        
+        funds = funds.sort((a, b) => {
+          const nameA = (a.fund_name || a.name || a.tradingsymbol || '').toLowerCase();
+          const nameB = (b.fund_name || b.name || b.tradingsymbol || '').toLowerCase();
+          return nameA.localeCompare(nameB);
+        });
+        
+        const options = funds.map(f => '<option value="' + (f.tradingsymbol || f.symbol) + '">' + (f.fund_name || f.name || f.tradingsymbol) + '</option>').join('');
+        
+        el.innerHTML = `
+          <h3>Compare Mutual Funds</h3>
+          <p class="text-muted" style="margin-bottom: 16px;">Compare your mutual funds against indices or other funds in your portfolio.</p>
+          
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 20px;">
+            <div>
+              <label style="display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Primary Fund</label>
+              <select id="mf-compare-primary" class="styled-select">${options}</select>
+            </div>
+            <div>
+              <label style="display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Compare With</label>
+              <select id="mf-compare-secondary" class="styled-select">
+                <optgroup label="Indices">
+                  <option value="NIFTY50">Nifty 50</option>
+                  <option value="NIFTYNEXT50">Nifty Next 50</option>
+                </optgroup>
+                <optgroup label="Your Funds">
+                  ${options}
+                </optgroup>
+              </select>
+            </div>
+            <div>
+              <label style="display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Time Period</label>
+              <div class="period-filter" id="mf-compare-periods" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="period-btn" data-period="1m">1M</button>
+                <button class="period-btn" data-period="3m">3M</button>
+                <button class="period-btn active" data-period="6m">6M</button>
+                <button class="period-btn" data-period="1y">1Y</button>
+                <button class="period-btn" data-period="2y">2Y</button>
+              </div>
+            </div>
+          </div>
+          
+          <button id="btn-compare-mf" class="btn btn-primary" style="margin-bottom: 20px;">Compare</button>
+          
+          <div id="mf-compare-result" style="margin-top: 16px;"></div>
+          <div id="mf-compare-chart-area" style="margin-top: 20px;"></div>
+        `;
+        
+        let activePeriod = '6m';
+        
+        el.querySelectorAll('#mf-compare-periods .period-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            el.querySelectorAll('#mf-compare-periods .period-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            activePeriod = btn.dataset.period;
+          });
+        });
+        
+        document.getElementById('btn-compare-mf').addEventListener('click', () => {
+          const primary = document.getElementById('mf-compare-primary').value;
+          const secondary = document.getElementById('mf-compare-secondary').value;
+          runMfComparison(primary, secondary, activePeriod);
+        });
+        
+      } catch (e) {
+        el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+      }
+    }
+    
+    async function runMfComparison(primary, secondary, period) {
+      const resultEl = document.getElementById('mf-compare-result');
+      const chartEl = document.getElementById('mf-compare-chart-area');
+      if (!resultEl || !chartEl) return;
+      
+      resultEl.innerHTML = '<p>Loading comparison data...</p>';
+      chartEl.innerHTML = '';
+      
+      try {
+        // Fetch primary fund data
+        const r1 = await fetch('/api/mf-nav-history/' + encodeURIComponent(primary) + '?period=' + period, { credentials: 'same-origin' });
+        const d1 = await r1.json();
+        
+        let d2 = null;
+        let secondaryLabel = secondary;
+        
+        // Fetch secondary data (index or fund)
+        if (secondary === 'NIFTY50' || secondary === 'NIFTYNEXT50') {
+          const r2 = await fetch('/api/index-history/' + encodeURIComponent(secondary) + '?period=' + period, { credentials: 'same-origin' });
+          d2 = await r2.json();
+          secondaryLabel = secondary === 'NIFTY50' ? 'Nifty 50' : 'Nifty Next 50';
+        } else {
+          const r2 = await fetch('/api/mf-nav-history/' + encodeURIComponent(secondary) + '?period=' + period, { credentials: 'same-origin' });
+          d2 = await r2.json();
+          secondaryLabel = d2.fund_name || secondary;
+        }
+        
+        const navData1 = d1.nav_data || [];
+        const navData2 = d2.nav_data || d2.data || [];
+        
+        if (navData1.length === 0) {
+          resultEl.innerHTML = '<p class="pct-down">No data available for primary fund.</p>';
+          return;
+        }
+        
+        // Create lookup maps by date
+        const map1 = {};
+        navData1.forEach(d => { map1[d.date] = d.nav || d.close || d.value; });
+        const map2 = {};
+        navData2.forEach(d => { map2[d.date] = d.nav || d.close || d.value; });
+        
+        // Get all unique dates and sort them
+        const allDates = [...new Set([...Object.keys(map1), ...Object.keys(map2)])].sort();
+        
+        // Find common dates (both funds have data)
+        const commonDates = allDates.filter(d => map1[d] && map2[d]);
+        
+        let return1 = 0, return2 = 0, commonStartDate = '', commonEndDate = '';
+        let chartData = [];
+        
+        if (commonDates.length > 1) {
+          // Use only common dates for accurate comparison
+          commonStartDate = commonDates[0];
+          commonEndDate = commonDates[commonDates.length - 1];
+          const start1 = map1[commonStartDate];
+          const start2 = map2[commonStartDate];
+          const end1 = map1[commonEndDate];
+          const end2 = map2[commonEndDate];
+          
+          return1 = ((end1 - start1) / start1) * 100;
+          return2 = ((end2 - start2) / start2) * 100;
+          
+          // Build chart data only from common dates, normalized from common start
+          chartData = commonDates.map(date => ({
+            date,
+            val1: ((map1[date] - start1) / start1) * 100,
+            val2: ((map2[date] - start2) / start2) * 100
+          }));
+        } else {
+          // Fallback: use all dates with individual normalization
+          commonStartDate = allDates[0];
+          commonEndDate = allDates[allDates.length - 1];
+          
+          const start1 = navData1[0]?.nav || 1;
+          const start2 = navData2[0]?.nav || navData2[0]?.close || 1;
+          const end1 = navData1[navData1.length - 1]?.nav || start1;
+          const end2 = navData2[navData2.length - 1]?.nav || navData2[navData2.length - 1]?.close || start2;
+          
+          return1 = ((end1 - start1) / start1) * 100;
+          return2 = ((end2 - start2) / start2) * 100;
+          
+          chartData = allDates.map(date => ({
+            date,
+            val1: map1[date] ? ((map1[date] - start1) / start1) * 100 : null,
+            val2: map2[date] ? ((map2[date] - start2) / start2) * 100 : null
+          }));
+         }
+        
+        const diff = return1 - return2;
+        const diffCls = diff >= 0 ? 'pct-up' : 'pct-down';
+        
+        const periodInfo = commonDates.length > 1 
+          ? `<p class="text-muted" style="font-size: 12px; margin-bottom: 12px; text-align: center;">Comparison period: ${commonStartDate} to ${commonEndDate} (${commonDates.length} common data points)</p>`
+          : `<p class="text-muted" style="font-size: 12px; margin-bottom: 12px; text-align: center;">Warning: Limited overlapping data. Returns calculated from individual start dates.</p>`;
+        
+        resultEl.innerHTML = periodInfo + `
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+            <div class="card" style="padding: 16px; text-align: center;">
+              <div class="text-muted" style="font-size: 12px; margin-bottom: 4px;">${d1.fund_name || primary}</div>
+              <div style="font-size: 24px; font-weight: 600;" class="${return1 >= 0 ? 'pct-up' : 'pct-down'}">${return1 >= 0 ? '+' : ''}${return1.toFixed(2)}%</div>
+            </div>
+            <div class="card" style="padding: 16px; text-align: center;">
+              <div class="text-muted" style="font-size: 12px; margin-bottom: 4px;">${secondaryLabel}</div>
+              <div style="font-size: 24px; font-weight: 600;" class="${return2 >= 0 ? 'pct-up' : 'pct-down'}">${return2 >= 0 ? '+' : ''}${return2.toFixed(2)}%</div>
+            </div>
+            <div class="card" style="padding: 16px; text-align: center;">
+              <div class="text-muted" style="font-size: 12px; margin-bottom: 4px;">Outperformance</div>
+              <div style="font-size: 24px; font-weight: 600;" class="${diffCls}">${diff >= 0 ? '+' : ''}${diff.toFixed(2)}%</div>
+            </div>
+          </div>
+        `;
+        
+        // Draw chart
+        chartEl.innerHTML = '<canvas id="mf-compare-canvas" style="max-height: 400px;"></canvas>';
+        const ctx = document.getElementById('mf-compare-canvas').getContext('2d');
+        
+        if (mfCompareChart) mfCompareChart.destroy();
+        
+        mfCompareChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: chartData.map(d => d.date),
+            datasets: [
+              {
+                label: d1.fund_name || primary,
+                data: chartData.map(d => d.val1),
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                borderWidth: 2,
+                fill: false,
+                spanGaps: true,
+                tension: 0.3,
+                pointRadius: 0
+              },
+              {
+                label: secondaryLabel,
+                data: chartData.map(d => d.val2),
+                borderColor: '#f59e0b',
+                backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                borderWidth: 2,
+                fill: false,
+                spanGaps: true,
+                tension: 0.3,
+                pointRadius: 0
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: {
+              legend: { position: 'top' },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => ctx.dataset.label + ': ' + (ctx.raw >= 0 ? '+' : '') + ctx.raw.toFixed(2) + '%'
+                }
+              }
+            },
+            scales: {
+              x: { display: true, grid: { display: false } },
+              y: {
+                display: true,
+                grid: { color: 'rgba(128,128,128,0.1)' },
+                ticks: { callback: (v) => (v >= 0 ? '+' : '') + v.toFixed(0) + '%' }
+              }
+            }
+          }
+        });
+        
+      } catch (e) {
+        resultEl.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
+      }
+    }
+
     async function loadMfDipPage() {
       const el = document.getElementById('mf-dip-content');
       if (!el) return;
@@ -1973,7 +2616,7 @@
           
           const stats3m = d3m.stats || {};
           const stats6m = d6m.stats || {};
-          
+
           results.push({
             symbol,
             name,
@@ -1981,6 +2624,8 @@
             pos6m: stats6m.position_in_range,
             dip3m: stats3m.dip_from_max,
             dip6m: stats6m.dip_from_max,
+            fromAvg3m: stats3m.dip_from_avg,
+            fromAvg6m: stats6m.dip_from_avg,
             current: stats3m.current_nav || stats6m.current_nav
           });
         } catch (e) {
@@ -2038,9 +2683,24 @@
         const opportunityClass = bestScore <= 20 ? 'opportunity-strong' : bestScore <= 40 ? 'opportunity-good' : bestScore <= 60 ? 'opportunity-neutral' : bestScore <= 80 ? 'opportunity-wait' : 'opportunity-avoid';
         
         const dataOpp = bestScore <= 20 ? 'strong' : bestScore <= 40 ? 'good' : bestScore <= 60 ? 'neutral' : bestScore <= 80 ? 'wait' : 'avoid';
+        
+        // Format from average: dip_from_avg is positive when current < avg (good to buy)
+        // dip_from_avg = ((avg - current) / avg) * 100, so positive = below avg
+        const fromAvg = r.fromAvg3m != null ? r.fromAvg3m : r.fromAvg6m;
+        let fromAvgText = '';
+        if (fromAvg != null) {
+          const isBelow = fromAvg > 0;
+          const cls = isBelow ? 'pct-up' : 'pct-down';
+          const label = isBelow ? 'below' : 'above';
+          fromAvgText = `<span class="${cls}">${Math.abs(fromAvg).toFixed(1)}% ${label} avg</span>`;
+        }
+        
         cardsHtml += `
           <div class="card mf-fund-card ${opportunityClass}" data-opportunity="${dataOpp}" onclick="selectMfForChart('${r.symbol}')">
-            <strong style="font-size: 13px;" title="${r.name}">${r.name.length > 40 ? r.name.slice(0,37) + '...' : r.name}</strong>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+              <strong style="font-size: 13px;" title="${r.name}">${r.name.length > 35 ? r.name.slice(0,32) + '...' : r.name}</strong>
+              ${fromAvgText ? '<span style="font-size: 11px; white-space: nowrap;">' + fromAvgText + '</span>' : ''}
+            </div>
             <div style="display: flex; gap: 16px; margin-top: 8px; font-size: 12px;">
               <div><span class="text-muted">3M:</span> <span class="${adv3m.cls}">${adv3m.icon} ${adv3m.text}</span>${r.pos3m != null ? ' <span class="text-muted">(' + r.pos3m.toFixed(0) + '%)</span>' : ''}</div>
               <div><span class="text-muted">6M:</span> <span class="${adv6m.cls}">${adv6m.icon} ${adv6m.text}</span>${r.pos6m != null ? ' <span class="text-muted">(' + r.pos6m.toFixed(0) + '%)</span>' : ''}</div>
@@ -2187,7 +2847,7 @@
       const p = (pathname || '/').replace(/\/$/, '') || '/';
       if (p === '/') return 'dashboard';
       const page = p.slice(1);
-      return ['holdings', 'monthly', 'weekly', 'db', 'by-date', 'checklist', 'stock-ledger', 'mf-ledger', 'performance', 'mf-dip', 'tools'].includes(page) ? page : 'dashboard';
+      return ['holdings', 'monthly', 'weekly', 'db', 'by-date', 'checklist', 'stock-ledger', 'mf-ledger', 'performance', 'mf-dip', 'mf-compare', 'live-portfolio', 'tools'].includes(page) ? page : 'dashboard';
     }
     document.querySelectorAll('#main-nav a').forEach(a => {
       a.addEventListener('click', (e) => {
@@ -2205,6 +2865,10 @@
     showPage(initialPage);
 
     document.getElementById('btn-refresh')?.addEventListener('click', () => {
+      loadPortfolioSummary(true);
+    });
+
+    document.getElementById('btn-refresh-dashboard')?.addEventListener('click', () => {
       loadPortfolioSummary(true);
     });
 

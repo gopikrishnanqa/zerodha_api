@@ -68,6 +68,8 @@ def _migrate_data_to_data_dir():
 @app.route("/stock-ledger")
 @app.route("/mf-ledger")
 @app.route("/mf-dip")
+@app.route("/mf-compare")
+@app.route("/live-portfolio")
 @app.route("/performance")
 @app.route("/tools")
 @app.route("/checklist")
@@ -599,6 +601,96 @@ def weekly_summary():
     return jsonify({"rows": out, "month": month})
 
 
+@app.route("/api/live-portfolio")
+@require_auth
+def live_portfolio():
+    """
+    Fetch live portfolio directly from Zerodha API without any caching.
+    Returns exact values as shown in Zerodha Console:
+    - Uses API's pnl field directly (includes all charges in calculation)
+    - Derives invested from (value - pnl) for accuracy
+    """
+    try:
+        # Fetch equity holdings
+        eq_holdings, eq_err = kite_api.fetch_holdings(session)
+        if eq_err:
+            return jsonify({"error": f"Failed to fetch equity: {eq_err}"}), 400
+        
+        # Fetch MF holdings
+        mf_holdings, mf_err = kite_api.fetch_mf_holdings(session)
+        if mf_err:
+            log.warning("MF fetch failed: %s", mf_err)
+            mf_holdings = []
+        
+        # Calculate equity totals using API's pnl field
+        # Note: Use 'quantity' only (not t1_quantity) to match Zerodha Console
+        # The API's pnl field is calculated as (last_price - avg_price) * quantity
+        eq_value = 0.0
+        eq_pnl = 0.0
+        for h in eq_holdings:
+            qty = float(h.get("quantity") or 0)  # Don't include t1_quantity
+            last_price = float(h.get("last_price") or 0)
+            pnl = float(h.get("pnl") or 0)
+            eq_value += qty * last_price
+            eq_pnl += pnl
+        # Zerodha's "Invested" includes stamp duty & charges which API doesn't provide
+        # So we derive invested from value - pnl (matches Zerodha's P&L calculation)
+        eq_invested = eq_value - eq_pnl
+        
+        # Calculate MF totals using API's pnl field (may be 0)
+        mf_value = 0.0
+        mf_pnl = 0.0
+        mf_invested_calc = 0.0
+        for h in mf_holdings:
+            qty = float(h.get("quantity") or 0)
+            last_price = float(h.get("last_price") or 0)
+            avg_price = float(h.get("average_price") or 0)
+            pnl = float(h.get("pnl") or 0)
+            mf_value += qty * last_price
+            mf_pnl += pnl
+            mf_invested_calc += qty * avg_price
+        # If MF pnl is 0 (API limitation), use calculated values
+        if mf_pnl == 0 and mf_value > 0:
+            mf_invested = mf_invested_calc
+            mf_pnl = mf_value - mf_invested
+        else:
+            mf_invested = mf_value - mf_pnl
+        
+        # Totals
+        total_value = eq_value + mf_value
+        total_invested = eq_invested + mf_invested
+        total_pnl = eq_pnl + mf_pnl
+        
+        return jsonify({
+            "fetched_at": datetime.now().isoformat(),
+            "equity": {
+                "holdings": eq_holdings,
+                "count": len(eq_holdings),
+                "value": round(eq_value, 2),
+                "invested": round(eq_invested, 2),
+                "pnl": round(eq_pnl, 2),
+                "pnl_pct": round((eq_pnl / eq_invested * 100) if eq_invested > 0 else 0, 2),
+            },
+            "mf": {
+                "holdings": mf_holdings,
+                "count": len(mf_holdings),
+                "value": round(mf_value, 2),
+                "invested": round(mf_invested, 2),
+                "pnl": round(mf_pnl, 2),
+                "pnl_pct": round((mf_pnl / mf_invested * 100) if mf_invested > 0 else 0, 2),
+            },
+            "total": {
+                "value": round(total_value, 2),
+                "invested": round(total_invested, 2),
+                "pnl": round(total_pnl, 2),
+                "pnl_pct": round((total_pnl / total_invested * 100) if total_invested > 0 else 0, 2),
+            }
+        })
+    except Exception as e:
+        log.exception("Live portfolio fetch failed")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/ledger/equity")
 @require_auth
 def ledger_equity():
@@ -619,6 +711,15 @@ def monthly_transactions():
         "total_eq_count": data["total_eq_count"],
         "total_mf_count": data["total_mf_count"]
     })
+
+
+@app.route("/api/monthly-transactions-detail")
+@require_auth
+def monthly_transactions_detail():
+    """Return monthly transactions with per-symbol breakdown."""
+    db.init_db()
+    data = db.get_monthly_transaction_details()
+    return jsonify({"details": data})
 
 
 @app.route("/api/ledger/mf")
@@ -1392,6 +1493,90 @@ def mf_nav_history(symbol):
         "data_source": data_source,
         "scheme_code": scheme_code,
     })
+
+
+@app.route("/api/index-history/<symbol>")
+@require_auth
+def index_history(symbol):
+    """Return historical data for an index (Nifty 50, Nifty Next 50, etc.)."""
+    from datetime import timedelta
+    import yfinance as yf
+    
+    period = request.args.get("period", "1y")
+    
+    period_days = {
+        "1m": 30, "3m": 90, "6m": 180, "1y": 365,
+        "2y": 730, "3y": 1095, "all": 3650
+    }
+    
+    today = date.today()
+    start_date = today - timedelta(days=period_days.get(period, 365))
+    
+    # Map symbol to Yahoo Finance ticker - try multiple options
+    # ^NSEI = Nifty 50, ^NSMIDCP = Nifty Next 50 (Junior Nifty)
+    ticker_options = {
+        "NIFTY50": ["^NSEI"],
+        "NIFTYNEXT50": ["^NSMIDCP"],
+        "NIFTYMIDCAP": ["^NSEMDCP50"],
+        "SENSEX": ["^BSESN"]
+    }
+    
+    tickers_to_try = ticker_options.get(symbol, [symbol])
+    log.info(f"Index history request: {symbol}, will try: {tickers_to_try}")
+    
+    hist = None
+    yf_symbol = symbol
+    
+    for yf_symbol in tickers_to_try:
+        try:
+            ticker = yf.Ticker(yf_symbol)
+            hist = ticker.history(start=start_date.isoformat(), end=today.isoformat())
+            if len(hist) > 0:
+                log.info(f"Got {len(hist)} data points for {yf_symbol}")
+                break
+            else:
+                log.warning(f"No data for {yf_symbol}, trying next...")
+        except Exception as e:
+            log.warning(f"Failed to fetch {yf_symbol}: {e}")
+            continue
+    
+    try:
+        nav_data = []
+        if hist is not None and len(hist) > 0:
+            for idx, row in hist.iterrows():
+                nav_data.append({
+                    "date": idx.strftime("%Y-%m-%d"),
+                    "close": round(row["Close"], 2),
+                    "nav": round(row["Close"], 2)
+                })
+        
+        if nav_data:
+            start_val = nav_data[0]["close"]
+            end_val = nav_data[-1]["close"]
+            period_return = ((end_val - start_val) / start_val) * 100 if start_val > 0 else 0
+        else:
+            period_return = 0
+        
+        return jsonify({
+            "symbol": symbol,
+            "yf_symbol": yf_symbol,
+            "period": period,
+            "nav_data": nav_data,
+            "data": nav_data,
+            "stats": {
+                "period_return": round(period_return, 2),
+                "data_points": len(nav_data)
+            }
+        })
+        
+    except Exception as e:
+        log.error(f"Error fetching index history for {symbol}: {e}")
+        return jsonify({
+            "error": str(e),
+            "symbol": symbol,
+            "nav_data": [],
+            "data": []
+        }), 500
 
 
 if __name__ == "__main__":
