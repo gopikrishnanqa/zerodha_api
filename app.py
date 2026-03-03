@@ -63,6 +63,7 @@ def _migrate_data_to_data_dir():
 @app.route("/weekly")
 @app.route("/db")
 @app.route("/by-date")
+@app.route("/holdings-by-date")
 @app.route("/ledger-equity")
 @app.route("/ledger-mf")
 @app.route("/stock-ledger")
@@ -529,9 +530,14 @@ def cache_status():
 @app.route("/api/dates")
 @require_auth
 def api_dates():
-    """Return list of dates we have portfolio data for (for By Date page dropdown)."""
+    """Return list of dates we have portfolio data for. Query param: limit (default 365, use 100 for holdings-by-date)."""
     db.init_db()
-    dates = db.get_dates_list(365)
+    try:
+        limit = int(request.args.get("limit", 365))
+    except ValueError:
+        limit = 365
+    limit = min(max(1, limit), 500)
+    dates = db.get_dates_list(limit)
     return jsonify({"dates": dates})
 
 

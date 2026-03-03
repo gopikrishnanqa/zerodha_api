@@ -51,6 +51,7 @@
           <a href="/weekly" data-page="weekly">Weekly Summary</a>
           <a href="/db" data-page="db">DB View</a>
           <a href="/by-date" data-page="by-date">By Date</a>
+          <a href="/holdings-by-date" data-page="holdings-by-date">Holdings by Date</a>
         </div>
       </div>
       <a href="/checklist" data-page="checklist">Checklist</a>
@@ -101,6 +102,23 @@
         <select id="by-date-select" style="padding: 8px 12px; border-radius: 6px; background: var(--card); border: 1px solid var(--border); color: var(--text); font-size: 0.9rem;"></select>
       </div>
       <div id="by-date-content"></div>
+    </div>
+
+    <div id="page-holdings-by-date" class="page">
+      <div style="margin-bottom: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px;">
+        <div>
+          <label for="holdings-by-date-select" class="text-muted">Date (last 100 days): </label>
+          <select id="holdings-by-date-select" style="padding: 8px 12px; border-radius: 6px; background: var(--card); border: 1px solid var(--border); color: var(--text); font-size: 0.9rem; min-width: 140px;"></select>
+        </div>
+        <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+          <input type="checkbox" id="holdings-by-date-compare" style="width: 16px; height: 16px;"> Compare with another date
+        </label>
+        <div id="holdings-by-date-compare-row" style="display: none; align-items: center; gap: 8px;">
+          <label for="holdings-by-date-select2" class="text-muted">To date: </label>
+          <select id="holdings-by-date-select2" style="padding: 8px 12px; border-radius: 6px; background: var(--card); border: 1px solid var(--border); color: var(--text); font-size: 0.9rem; min-width: 140px;"></select>
+        </div>
+      </div>
+      <div id="holdings-by-date-content"></div>
     </div>
 
     <div id="page-checklist" class="page">
@@ -636,6 +654,7 @@
       else if (pageId === 'weekly') loadWeeklyPage();
       else if (pageId === 'db') loadDbPage();
       else if (pageId === 'by-date') loadByDatePage();
+      else if (pageId === 'holdings-by-date') loadHoldingsByDatePage();
       else if (pageId === 'checklist') loadChecklistPage();
       else if (pageId === 'stock-ledger') loadStockLedgerPage();
       else if (pageId === 'mf-ledger') loadMfLedgerPage();
@@ -1340,6 +1359,256 @@
     }
 
     document.getElementById('by-date-select')?.addEventListener('change', () => loadByDatePage());
+
+    async function loadHoldingsByDatePage() {
+      const select = document.getElementById('holdings-by-date-select');
+      const select2 = document.getElementById('holdings-by-date-select2');
+      const compareCheck = document.getElementById('holdings-by-date-compare');
+      const compareRow = document.getElementById('holdings-by-date-compare-row');
+      const content = document.getElementById('holdings-by-date-content');
+      if (!select || !content) return;
+
+      if (select.options.length === 0) {
+        select.innerHTML = '<option value="">Loading…</option>';
+        if (select2) select2.innerHTML = '<option value="">Loading…</option>';
+        try {
+          const r = await fetch('/api/dates?limit=100', { credentials: 'same-origin', cache: 'no-store' });
+          const d = await r.json();
+          const dates = d.dates || [];
+          const opts = dates.length ? dates.map(dt => '<option value="' + dt + '">' + dt + '</option>').join('') : '<option value="">No dates</option>';
+          select.innerHTML = opts;
+          if (select2) select2.innerHTML = opts;
+          if (dates.length > 0) {
+            select.value = dates[0];
+            if (select2) select2.value = dates.length > 1 ? dates[1] : dates[0];
+          }
+        } catch (e) {
+          select.innerHTML = '<option value="">Error</option>';
+          content.innerHTML = '<p class="pct-down">Error loading dates.</p>';
+          return;
+        }
+      }
+
+      if (compareCheck && compareRow) {
+        compareRow.style.display = compareCheck.checked ? 'flex' : 'none';
+        if (compareCheck.checked && select2 && select2.options.length === 0 && select.options.length > 0) {
+          for (let i = 0; i < select.options.length; i++) {
+            const o = document.createElement('option');
+            o.value = select.options[i].value;
+            o.textContent = select.options[i].textContent;
+            select2.appendChild(o);
+          }
+          if (select2.options.length > 1) select2.value = select2.options[1].value;
+        }
+      }
+
+      const dateVal = select.value;
+      const compareMode = compareCheck && compareCheck.checked && select2 && dateVal && select2.value && dateVal !== select2.value;
+
+      if (!dateVal) {
+        content.innerHTML = '<p class="text-muted">Select a date to see day snapshot: number of stocks/MF, name, qty, avg price, invested value, current value.</p>';
+        return;
+      }
+
+      if (compareMode) {
+        content.innerHTML = '<p>Loading comparison…</p>';
+        try {
+          const [r1, r2] = await Promise.all([
+            fetch('/api/holdings-by-date?date=' + encodeURIComponent(dateVal), { credentials: 'same-origin', cache: 'no-store' }),
+            fetch('/api/holdings-by-date?date=' + encodeURIComponent(select2.value), { credentials: 'same-origin', cache: 'no-store' })
+          ]);
+          const data1 = await r1.json();
+          const data2 = await r2.json();
+          if (!r1.ok || !r2.ok) throw new Error('No data for one or both dates');
+          const pnlCls = (v) => v >= 0 ? 'pct-up' : 'pct-down';
+          const pnlSign = (v) => v >= 0 ? '+' : '';
+          const v = (h) => (parseFloat(h.quantity) || 0) * (parseFloat(h.last_price) || 0);
+          const inv = (h) => (parseFloat(h.quantity) || 0) * (parseFloat(h.average_price) || 0);
+          // Normalize symbol so renames (e.g. GOLDBEES→GOLDBEES-E, PGINVIT→PGINVIT-IV) match
+          function normalizedSymbol(s) {
+            if (!s || typeof s !== 'string') return '';
+            return s.replace(/-E$|-IV$|-GB$|-I$|-II$|-\d+$/gi, '').trim();
+          }
+          // Equity: match by instrument_token (stable across symbol renames) else by normalized symbol
+          function eqMatchKey(h) {
+            const tok = h.instrument_token != null && h.instrument_token !== '' && Number(h.instrument_token) !== 0;
+            return tok ? ('t_' + String(h.instrument_token)) : ('s_' + (normalizedSymbol(h.tradingsymbol || '') || h.tradingsymbol || ''));
+          }
+          // MF: match by normalized symbol + folio (same fund reclassified e.g. GOLDBEES→GOLDBEES-E)
+          function mfMatchKey(h) {
+            return (normalizedSymbol(h.tradingsymbol || '') || (h.tradingsymbol || '')) + '|' + (h.folio || '');
+          }
+          const eq1 = (data1.equity || []).map(h => ({ ...h, _key: eqMatchKey(h) }));
+          const eq2 = (data2.equity || []).map(h => ({ ...h, _key: eqMatchKey(h) }));
+          const mf1 = (data1.mf || []).map(h => ({ ...h, _key: mfMatchKey(h) }));
+          const mf2 = (data2.mf || []).map(h => ({ ...h, _key: mfMatchKey(h) }));
+          const map1 = (arr) => { const m = {}; arr.forEach(h => { m[h._key] = h; }); return m; };
+          const eqMap1 = map1(eq1); const eqMap2 = map1(eq2);
+          const mfMap1 = map1(mf1); const mfMap2 = map1(mf2);
+          const allEqKeys = [...new Set([...Object.keys(eqMap1), ...Object.keys(eqMap2)])];
+          const allMfKeys = [...new Set([...Object.keys(mfMap1), ...Object.keys(mfMap2)])];
+          let eqVal1 = 0, eqVal2 = 0, eqInv1 = 0, eqInv2 = 0, mfVal1 = 0, mfVal2 = 0, mfInv1 = 0, mfInv2 = 0;
+          eq1.forEach(h => { eqVal1 += v(h); eqInv1 += inv(h); });
+          eq2.forEach(h => { eqVal2 += v(h); eqInv2 += inv(h); });
+          mf1.forEach(h => { mfVal1 += v(h); mfInv1 += inv(h); });
+          mf2.forEach(h => { mfVal2 += v(h); mfInv2 += inv(h); });
+          const totalVal1 = eqVal1 + mfVal1; const totalVal2 = eqVal2 + mfVal2;
+          const totalInv1 = eqInv1 + mfInv1; const totalInv2 = eqInv2 + mfInv2;
+          const diffVal = totalVal2 - totalVal1; const diffInv = totalInv2 - totalInv1;
+
+          let html = '<p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">Comparing <strong>' + dateVal + '</strong> (from) → <strong>' + select2.value + '</strong> (to). Symbol renames (e.g. GOLDBEES→GOLDBEES-E, PGINVIT→PGINVIT-IV) are shown as reclassification, not Sold+Added.</p>';
+          html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px;">';
+          html += '<div class="card" style="padding: 12px;"><span class="text-muted">Total value change</span><br><span class="' + pnlCls(diffVal) + '" style="font-size: 1.1rem; font-weight: 600;">' + pnlSign(diffVal) + fmt(diffVal) + '</span><br><small>' + fmt(totalVal1) + ' → ' + fmt(totalVal2) + '</small></div>';
+          html += '<div class="card" style="padding: 12px;"><span class="text-muted">Invested change</span><br><span style="font-size: 1.1rem; font-weight: 600;">' + pnlSign(diffInv) + fmt(diffInv) + '</span><br><small>' + fmt(totalInv1) + ' → ' + fmt(totalInv2) + '</small></div>';
+          html += '</div>';
+
+          const only1 = []; const only2 = []; const both = []; const reclassified = [];
+          allEqKeys.forEach(k => {
+            const a = eqMap1[k]; const b = eqMap2[k];
+            if (!a) only2.push({ ...b, _diff: 'added' });
+            else if (!b) only1.push({ ...a, _diff: 'sold' });
+            else {
+              const symFrom = (a.tradingsymbol || '').trim();
+              const symTo = (b.tradingsymbol || '').trim();
+              if (symFrom !== symTo) reclassified.push({ from: a, to: b });
+              else both.push({ key: k, from: a, to: b });
+            }
+          });
+          html += '<h4 class="section-title">Stocks – Diff</h4><div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr><th>Name</th><th>Change</th><th>Qty (from → to)</th><th>Invest Value (from → to)</th><th>Current Value (from → to)</th></tr></thead><tbody>';
+          reclassified.forEach(({ from: a, to: b }) => {
+            const q1 = parseFloat(a.quantity) || 0, q2 = parseFloat(b.quantity) || 0;
+            const inv1 = inv(a), inv2 = inv(b), v1 = v(a), v2 = v(b);
+            html += '<tr style="background: var(--bg-secondary);"><td><strong>' + (a.tradingsymbol || '–') + ' → ' + (b.tradingsymbol || '–') + '</strong></td><td><span class="text-muted">Symbol reclassified</span></td><td>' + q1 + ' → ' + q2 + '</td><td>' + fmt(inv1) + ' → ' + fmt(inv2) + '</td><td>' + fmt(v1) + ' → ' + fmt(v2) + '</td></tr>';
+          });
+          only1.forEach(h => {
+            html += '<tr class="pct-down"><td><strong>' + (h.tradingsymbol || '–') + '</strong></td><td>Sold</td><td>' + (h.quantity || 0) + ' → –</td><td>' + fmt(inv(h)) + ' → –</td><td>' + fmt(v(h)) + ' → –</td></tr>';
+          });
+          only2.forEach(h => {
+            html += '<tr class="pct-up"><td><strong>' + (h.tradingsymbol || '–') + '</strong></td><td>Added</td><td>– → ' + (h.quantity || 0) + '</td><td>– → ' + fmt(inv(h)) + '</td><td>– → ' + fmt(v(h)) + '</td></tr>';
+          });
+          both.forEach(({ key, from: a, to: b }) => {
+            const q1 = parseFloat(a.quantity) || 0, q2 = parseFloat(b.quantity) || 0;
+            const dq = q2 - q1;
+            if (Math.abs(dq) < 0.0001) return;
+            const inv1 = inv(a), inv2 = inv(b), v1 = v(a), v2 = v(b);
+            const diffV = v2 - v1;
+            html += '<tr><td><strong>' + (a.tradingsymbol || '–') + '</strong></td><td class="' + pnlCls(dq) + '">' + (dq > 0 ? '+' : '') + dq + ' qty</td><td>' + q1 + ' → ' + q2 + '</td><td>' + fmt(inv1) + ' → ' + fmt(inv2) + '</td><td class="' + pnlCls(diffV) + '">' + fmt(v1) + ' → ' + fmt(v2) + ' (' + pnlSign(diffV) + fmt(diffV) + ')</td></tr>';
+          });
+          html += '</tbody></table></div>';
+
+          const mfOnly1 = []; const mfOnly2 = []; const mfBoth = []; const mfReclassified = [];
+          allMfKeys.forEach(k => {
+            const a = mfMap1[k]; const b = mfMap2[k];
+            if (!a) mfOnly2.push({ ...b, _diff: 'added' });
+            else if (!b) mfOnly1.push({ ...a, _diff: 'sold' });
+            else {
+              const symFrom = (a.tradingsymbol || '').trim();
+              const symTo = (b.tradingsymbol || '').trim();
+              if (symFrom !== symTo) mfReclassified.push({ from: a, to: b });
+              else mfBoth.push({ key: k, from: a, to: b });
+            }
+          });
+          html += '<h4 class="section-title" style="margin-top: 20px;">Mutual Funds – Diff</h4><div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr><th>Name</th><th>Change</th><th>Units (from → to)</th><th>Invest Value (from → to)</th><th>Current Value (from → to)</th></tr></thead><tbody>';
+          mfReclassified.forEach(({ from: a, to: b }) => {
+            const nameA = (a.fund || a.tradingsymbol || '–').replace(/</g, '&lt;');
+            const nameB = (b.fund || b.tradingsymbol || '–').replace(/</g, '&lt;');
+            const q1 = (parseFloat(a.quantity) || 0).toFixed(3), q2 = (parseFloat(b.quantity) || 0).toFixed(3);
+            html += '<tr style="background: var(--bg-secondary);"><td><strong title="' + nameA + '">' + (nameA.length > 25 ? nameA.substring(0, 22) + '…' : nameA) + ' → </strong><strong title="' + nameB + '">' + (nameB.length > 25 ? nameB.substring(0, 22) + '…' : nameB) + '</strong></td><td><span class="text-muted">Symbol reclassified</span></td><td>' + q1 + ' → ' + q2 + '</td><td>' + fmt(inv(a)) + ' → ' + fmt(inv(b)) + '</td><td>' + fmt(v(a)) + ' → ' + fmt(v(b)) + '</td></tr>';
+          });
+          mfOnly1.forEach(h => {
+            const name = (h.fund || h.tradingsymbol || '–').replace(/</g, '&lt;');
+            html += '<tr class="pct-down"><td><strong title="' + name + '">' + (name.length > 40 ? name.substring(0, 37) + '…' : name) + '</strong></td><td>Sold</td><td>' + (parseFloat(h.quantity) || 0).toFixed(3) + ' → –</td><td>' + fmt(inv(h)) + ' → –</td><td>' + fmt(v(h)) + ' → –</td></tr>';
+          });
+          mfOnly2.forEach(h => {
+            const name = (h.fund || h.tradingsymbol || '–').replace(/</g, '&lt;');
+            html += '<tr class="pct-up"><td><strong title="' + name + '">' + (name.length > 40 ? name.substring(0, 37) + '…' : name) + '</strong></td><td>Added</td><td>– → ' + (parseFloat(h.quantity) || 0).toFixed(3) + '</td><td>– → ' + fmt(inv(h)) + '</td><td>– → ' + fmt(v(h)) + '</td></tr>';
+          });
+          mfBoth.forEach(({ from: a, to: b }) => {
+            const q1 = parseFloat(a.quantity) || 0, q2 = parseFloat(b.quantity) || 0;
+            const dq = q2 - q1;
+            if (Math.abs(dq) < 0.00001) return;
+            const name = (a.fund || a.tradingsymbol || '–').replace(/</g, '&lt;');
+            const inv1 = inv(a), inv2 = inv(b), v1 = v(a), v2 = v(b);
+            const diffV = v2 - v1;
+            html += '<tr><td><strong title="' + name + '">' + (name.length > 40 ? name.substring(0, 37) + '…' : name) + '</strong></td><td class="' + pnlCls(dq) + '">' + (dq > 0 ? '+' : '') + dq.toFixed(3) + ' units</td><td>' + q1.toFixed(3) + ' → ' + q2.toFixed(3) + '</td><td>' + fmt(inv1) + ' → ' + fmt(inv2) + '</td><td class="' + pnlCls(diffV) + '">' + fmt(v1) + ' → ' + fmt(v2) + ' (' + pnlSign(diffV) + fmt(diffV) + ')</td></tr>';
+          });
+          html += '</tbody></table></div>';
+          const hasRealEqDiff = only1.length > 0 || only2.length > 0 || both.some(x => Math.abs((parseFloat(x.to.quantity) || 0) - (parseFloat(x.from.quantity) || 0)) >= 0.0001);
+          const hasRealMfDiff = mfOnly1.length > 0 || mfOnly2.length > 0 || mfBoth.some(x => Math.abs((parseFloat(x.to.quantity) || 0) - (parseFloat(x.from.quantity) || 0)) >= 0.00001);
+          if (!hasRealEqDiff && !hasRealMfDiff && reclassified.length === 0 && mfReclassified.length === 0)
+            html += '<p class="text-muted">No changes between these two dates (only symbol reclassifications shown above, if any).</p>';
+          content.innerHTML = html;
+        } catch (e) {
+          content.innerHTML = '<p class="pct-down">Error: ' + (e.message || 'Failed to load comparison') + '</p>';
+        }
+        return;
+      }
+
+      content.innerHTML = '<p>Loading snapshot for ' + dateVal + '…</p>';
+      try {
+        const r = await fetch('/api/holdings-by-date?date=' + encodeURIComponent(dateVal), { credentials: 'same-origin', cache: 'no-store' });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'No data for this date');
+
+        const equity = data.equity || [];
+        const mf = data.mf || [];
+        const eqInvested = data.portfolio_cost != null ? Number(data.portfolio_cost) : equity.reduce((s, h) => s + (parseFloat(h.quantity) || 0) * (parseFloat(h.average_price) || 0), 0);
+        const eqValue = data.portfolio_value != null ? Number(data.portfolio_value) : equity.reduce((s, h) => s + (parseFloat(h.quantity) || 0) * (parseFloat(h.last_price) || 0), 0);
+        const mfInvested = data.mf_portfolio_cost != null ? Number(data.mf_portfolio_cost) : mf.reduce((s, h) => s + (parseFloat(h.quantity) || 0) * (parseFloat(h.average_price) || 0), 0);
+        const mfValue = data.mf_portfolio_value != null ? Number(data.mf_portfolio_value) : mf.reduce((s, h) => s + (parseFloat(h.quantity) || 0) * (parseFloat(h.last_price) || 0), 0);
+        const totalInvested = eqInvested + mfInvested;
+        const totalValue = eqValue + mfValue;
+        const eqPnl = eqValue - eqInvested;
+        const mfPnl = mfValue - mfInvested;
+        const totalPnl = totalValue - totalInvested;
+        const eqPnlPct = eqInvested > 0 ? ((eqPnl / eqInvested) * 100).toFixed(2) : '0.00';
+        const mfPnlPct = mfInvested > 0 ? ((mfPnl / mfInvested) * 100).toFixed(2) : '0.00';
+        const totalPnlPct = totalInvested > 0 ? ((totalPnl / totalInvested) * 100).toFixed(2) : '0.00';
+        const pnlCls = (v) => v >= 0 ? 'pct-up' : 'pct-down';
+        const pnlSign = (v) => v >= 0 ? '+' : '';
+
+        let html = '<p class="text-muted" style="font-size: 0.85rem; margin-bottom: 16px;">Invested = what you paid (cost). Present value = current market value. The difference is Unrealized P&L (gain if positive, loss if negative).</p>';
+        html += '<div class="holdings-by-date-summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">';
+        html += '<div class="card" style="padding: 16px;"><h4 style="margin: 0 0 10px; font-size: 0.95rem;">Equity (Stocks)</h4><div class="stat"><span class="text-muted">Invested</span><br><strong>' + fmt(eqInvested) + '</strong></div><div class="stat" style="margin-top: 8px;"><span class="text-muted">Present value</span><br><strong>' + fmt(eqValue) + '</strong></div><div class="stat ' + pnlCls(eqPnl) + '" style="margin-top: 8px;"><span class="text-muted">Unrealized P&L</span><br><strong>' + pnlSign(eqPnl) + fmt(eqPnl) + ' (' + pnlSign(eqPnlPct) + eqPnlPct + '%)</strong></div></div>';
+        html += '<div class="card" style="padding: 16px;"><h4 style="margin: 0 0 10px; font-size: 0.95rem;">Mutual Funds</h4><div class="stat"><span class="text-muted">Invested</span><br><strong>' + fmt(mfInvested) + '</strong></div><div class="stat" style="margin-top: 8px;"><span class="text-muted">Present value</span><br><strong>' + fmt(mfValue) + '</strong></div><div class="stat ' + pnlCls(mfPnl) + '" style="margin-top: 8px;"><span class="text-muted">Unrealized P&L</span><br><strong>' + pnlSign(mfPnl) + fmt(mfPnl) + ' (' + pnlSign(mfPnlPct) + mfPnlPct + '%)</strong></div></div>';
+        html += '<div class="card" style="padding: 16px; border: 2px solid var(--accent);"><h4 style="margin: 0 0 10px; font-size: 0.95rem;">Total</h4><div class="stat"><span class="text-muted">Invested</span><br><strong>' + fmt(totalInvested) + '</strong></div><div class="stat" style="margin-top: 8px;"><span class="text-muted">Present value</span><br><strong>' + fmt(totalValue) + '</strong></div><div class="stat ' + pnlCls(totalPnl) + '" style="margin-top: 8px;"><span class="text-muted">Unrealized P&L</span><br><strong>' + pnlSign(totalPnl) + fmt(totalPnl) + ' (' + pnlSign(totalPnlPct) + totalPnlPct + '%)</strong></div></div>';
+        html += '</div>';
+
+        if (equity.length > 0) {
+          html += '<h4 class="section-title">Stocks (' + equity.length + ')</h4><div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr><th>Name</th><th>Qty</th><th>Avg Price</th><th>Invest Value</th><th>Current Value</th></tr></thead><tbody>';
+          equity.forEach(h => {
+            const qty = parseFloat(h.quantity) || 0;
+            const avg = parseFloat(h.average_price) || 0;
+            const last = parseFloat(h.last_price) || 0;
+            const investVal = qty * avg;
+            const currVal = qty * last;
+            html += '<tr><td><strong>' + (h.tradingsymbol || '–') + '</strong></td><td>' + qty + '</td><td>' + fmt(avg) + '</td><td>' + fmt(investVal) + '</td><td>' + fmt(currVal) + '</td></tr>';
+          });
+          html += '<tr class="total-row"><td colspan="3"><strong>Total</strong></td><td><strong>' + fmt(eqInvested) + '</strong></td><td><strong>' + fmt(eqValue) + '</strong></td></tr></tbody></table></div>';
+        }
+        if (mf.length > 0) {
+          html += '<h4 class="section-title" style="margin-top: 20px;">Mutual Funds (' + mf.length + ')</h4><div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr><th>Name</th><th>Qty</th><th>Avg Price</th><th>Invest Value</th><th>Current Value</th></tr></thead><tbody>';
+          mf.forEach(h => {
+            const qty = parseFloat(h.quantity) || 0;
+            const avg = parseFloat(h.average_price) || 0;
+            const last = parseFloat(h.last_price) || 0;
+            const investVal = qty * avg;
+            const currVal = qty * last;
+            const name = (h.fund || h.tradingsymbol || '–').replace(/</g, '&lt;');
+            html += '<tr><td><strong title="' + name + '">' + (name.length > 45 ? name.substring(0, 42) + '…' : name) + '</strong></td><td>' + qty.toFixed(3) + '</td><td>' + fmt(avg) + '</td><td>' + fmt(investVal) + '</td><td>' + fmt(currVal) + '</td></tr>';
+          });
+          html += '<tr class="total-row"><td colspan="3"><strong>Total</strong></td><td><strong>' + fmt(mfInvested) + '</strong></td><td><strong>' + fmt(mfValue) + '</strong></td></tr></tbody></table></div>';
+        }
+        if (equity.length === 0 && mf.length === 0) html += '<p class="text-muted">No holdings for this date.</p>';
+        content.innerHTML = html;
+      } catch (e) {
+        content.innerHTML = '<p class="pct-down">Error: ' + (e.message || 'Failed to load') + '</p>';
+      }
+    }
+
+    document.getElementById('holdings-by-date-select')?.addEventListener('change', () => loadHoldingsByDatePage());
+    document.getElementById('holdings-by-date-select2')?.addEventListener('change', () => loadHoldingsByDatePage());
+    document.getElementById('holdings-by-date-compare')?.addEventListener('change', () => loadHoldingsByDatePage());
 
     const CHECKLIST_MONTHLY = [
       { title: '💳 Financial', items: ['Credit Card Bill Payment', 'SIP / Mutual Fund Investment', 'EMI (Home Loan / Car Loan / Personal Loan)', 'Rent Payment', 'Electricity Bill', 'Water Bill', 'Gas Cylinder Booking', 'Internet / Broadband Bill', 'Mobile Recharge / Postpaid Bill', 'OTT Subscriptions', 'Insurance Premium (if monthly mode)', 'NPS Contribution', 'RD / Savings Contribution', 'Salary Credit Verification', 'Expense Tracking Review', 'Emergency Fund Contribution'] },
@@ -2847,7 +3116,7 @@
       const p = (pathname || '/').replace(/\/$/, '') || '/';
       if (p === '/') return 'dashboard';
       const page = p.slice(1);
-      return ['holdings', 'monthly', 'weekly', 'db', 'by-date', 'checklist', 'stock-ledger', 'mf-ledger', 'performance', 'mf-dip', 'mf-compare', 'live-portfolio', 'tools'].includes(page) ? page : 'dashboard';
+      return ['holdings', 'monthly', 'weekly', 'db', 'by-date', 'holdings-by-date', 'checklist', 'stock-ledger', 'mf-ledger', 'performance', 'mf-dip', 'mf-compare', 'live-portfolio', 'tools'].includes(page) ? page : 'dashboard';
     }
     document.querySelectorAll('#main-nav a').forEach(a => {
       a.addEventListener('click', (e) => {

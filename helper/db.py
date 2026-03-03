@@ -404,54 +404,33 @@ def get_cached_day_on_or_before(d: date) -> dict | None:
 
 
 def _detect_transactions_from_holdings(conn, d: date, holdings: list, mf_holdings: list) -> list:
-    """Compare current holdings with previous day to detect implicit transactions."""
+    """Compare current holdings with previous day to detect implicit transactions.
+    - Get all stocks, compare quantity and realised_quantity (remaining = T+1).
+    - Only create a transaction when there is an actual change vs previous snapshot.
+    - Attribute transactions to the older (previous) date, not the latest run date.
+    """
     detected = []
     today_str = d.isoformat()
 
     # Skip transaction detection on non-trading days (weekends/holidays)
-    # T1 positions on non-trading days are carryovers from the last trading day
     if not _is_trading_day(d):
         log.info("Skipping transaction detection for %s (non-trading day)", today_str)
         return detected
 
-    # 1. Primary Detection: T1 holdings (Quantity - Realised Quantity)
-    # This catches buys from today/yesterday even without history.
-    for h in holdings:
-        qty = float(h.get("quantity") or 0)
-        realised = float(h.get("realised_quantity") or 0)
-        t1 = qty - realised
-        if t1 > 0.0001:
-            sym = h["tradingsymbol"]
-            log.info("Detected T1 hold for %s: %f", sym, t1)
-            detected.append({
-                "id": f"HOLDING_T1_{sym}_{today_str}",
-                "date": today_str,
-                "type": "BUY",
-                "instrument_type": "EQUITY",
-                "tradingsymbol": sym,
-                "exchange": h.get("exchange", "NSE"),
-                "quantity": t1,
-                "price": float(h.get("average_price") or 0),
-                "amount": t1 * float(h.get("average_price") or 0),
-            })
-
-    # 2. Secondary Detection: Database Diff (only if previous date is the IMMEDIATE preceding snap)
+    # Load previous day's equity (and MF) first; only use when immediate previous day (no missing date)
     prev_date = get_previous_date(d)
     is_recent = False
+    prev_equity = {}
+    prev_mf = {}
     if prev_date:
         days_diff = (d - prev_date).days
-        # Only diff if we have a very fresh snapshot (1-2 days max) 
-        # to avoid attributing old history changes to today.
-        if days_diff <= 2: 
+        if days_diff == 1:
             is_recent = True
         else:
-            log.info("Previous snapshot for %s is %d days old (%s). Skipping diff to avoid ghost trades.", today_str, days_diff, prev_date.isoformat())
+            log.info("Previous snapshot for %s is %d days old (%s). Skipping to avoid ghost trades.", today_str, days_diff, prev_date.isoformat())
 
     if is_recent and prev_date:
         pdate_str = prev_date.isoformat()
-        log.info("Performing archive-aware diff with %s", pdate_str)
-        
-        # Equity
         prev_equity_rows = conn.execute(
             "SELECT tradingsymbol, data_json FROM holdings_equity_daily WHERE date = ?", (pdate_str,)
         ).fetchall()
@@ -460,8 +439,6 @@ def _detect_transactions_from_holdings(conn, d: date, holdings: list, mf_holding
                 "SELECT tradingsymbol, data_json FROM holdings_equity_archive WHERE date = ?", (pdate_str,)
             ).fetchall()
         prev_equity = {r["tradingsymbol"]: json.loads(r["data_json"]) for r in prev_equity_rows}
-
-        # MF
         prev_mf_rows = conn.execute(
             "SELECT tradingsymbol, folio, data_json FROM holdings_mf_daily WHERE date = ?", (pdate_str,)
         ).fetchall()
@@ -471,87 +448,134 @@ def _detect_transactions_from_holdings(conn, d: date, holdings: list, mf_holding
             ).fetchall()
         prev_mf = {(r["tradingsymbol"], r["folio"]): json.loads(r["data_json"]) for r in prev_mf_rows}
 
-        # Check Equity Diff
+    # Use older (previous) date for all inferred transactions, not latest
+    tx_date = prev_date.isoformat() if (is_recent and prev_date) else today_str
+
+    # 1. T1 (remaining = quantity - realised_quantity): only when we have prev snapshot to compare
+    #    Record only when remaining actually increased vs prev; attribute to older date.
+    if not (is_recent and prev_date):
+        pass  # skip T1 and diff when any date is missing (gap)
+    else:
+        for h in holdings:
+            qty = float(h.get("quantity") or 0)
+            realised = float(h.get("realised_quantity") or 0)
+            t1_now = qty - realised
+            if t1_now < 0.0001:
+                continue
+            sym = h["tradingsymbol"]
+            old_qty = 0.0
+            old_realised = 0.0
+            if prev_equity and sym in prev_equity:
+                old_qty = float(prev_equity[sym].get("quantity") or 0)
+                old_realised = float(prev_equity[sym].get("realised_quantity") or 0)
+            old_t1 = old_qty - old_realised
+            t1_increase = t1_now - old_t1
+            if t1_increase < 0.0001:
+                if old_qty >= qty:
+                    log.info("Skipping T1 for %s: no increase in remaining (prev_t1=%f, now_t1=%f)", sym, old_t1, t1_now)
+                continue
+            if old_qty >= qty:
+                log.info("Skipping T1 BUY for %s: prev qty >= current (unsettled from before)", sym)
+                continue
+            log.info("Detected T1 increase for %s: +%f (remaining)", sym, t1_increase)
+            detected.append({
+                "id": f"HOLDING_T1_{sym}_{tx_date}",
+                "date": tx_date,
+                "type": "BUY",
+                "instrument_type": "EQUITY",
+                "tradingsymbol": sym,
+                "exchange": h.get("exchange", "NSE"),
+                "quantity": t1_increase,
+                "price": float(h.get("average_price") or 0),
+                "amount": t1_increase * float(h.get("average_price") or 0),
+            })
+
+    # 2. Equity diff: only when prev snapshot had this symbol (old_qty > 0) to avoid phantoms for long-held stocks
+    if is_recent and prev_date:
+        pdate_str = prev_date.isoformat()
+        log.info("Performing archive-aware diff with %s (tx date = %s)", pdate_str, tx_date)
+
         for h in holdings:
             sym = h["tradingsymbol"]
             new_qty = float(h.get("quantity") or 0)
             old_h = prev_equity.get(sym)
             old_qty = float(old_h.get("quantity") or 0) if old_h else 0
-            
-            if abs(new_qty - old_qty) > 0.0001:
-                diff = new_qty - old_qty
-                if diff > 0:
-                    # We already caught T1 buys above. This diff logic catches buys that 
-                    # happened between the last fetch and now, which might ALREADY BE realised.
-                    # To avoid double counting, we only record the diff if it's not already T1.
-                    # But wait: t1 is (qty - realised). If we bought 100 on Feb 22, and it settled 
-                    # by Feb 25, then Feb 25 realised=100. If Feb 20 realised=0, then diff=100.
-                    # We should subtract the T1 amount we already found to avoid double counting.
-                    t1_amount = next((x["quantity"] for x in detected if x["tradingsymbol"] == sym), 0)
-                    real_diff = diff - t1_amount
-                    if real_diff > 0.0001:
-                        log.info("Detecting BUY for %s: diff=%f", sym, real_diff)
-                        detected.append({
-                            "id": f"DIF_BUY_{sym}_{today_str}",
-                            "date": today_str,
-                            "type": "BUY",
-                            "instrument_type": "EQUITY",
-                            "tradingsymbol": sym,
-                            "exchange": h.get("exchange", "NSE"),
-                            "quantity": real_diff,
-                            "price": float(h.get("average_price") or 0),
-                            "amount": real_diff * float(h.get("average_price") or 0),
-                        })
-                else:
-                    sell_qty = abs(diff)
-                    log.info("Detecting SELL for %s: diff=%f", sym, sell_qty)
+
+            if abs(new_qty - old_qty) < 0.0001:
+                continue
+            diff = new_qty - old_qty
+            if diff > 0:
+                # Only record BUY if symbol existed in previous snapshot (old_qty > 0).
+                # If old_qty == 0, symbol was missing in prev → likely phantom for long-held stocks.
+                if old_qty < 0.0001:
+                    log.info("Skipping DIF BUY for %s: symbol was not in previous snapshot (phantom risk)", sym)
+                    continue
+                t1_amount = next((x["quantity"] for x in detected if x["tradingsymbol"] == sym), 0)
+                real_diff = diff - t1_amount
+                if real_diff > 0.0001:
+                    log.info("Detecting BUY for %s: diff=%f (date=%s)", sym, real_diff, tx_date)
                     detected.append({
-                        "id": f"DIF_SELL_{sym}_{today_str}",
-                        "date": today_str,
-                        "type": "SELL",
+                        "id": f"DIF_BUY_{sym}_{tx_date}",
+                        "date": tx_date,
+                        "type": "BUY",
                         "instrument_type": "EQUITY",
                         "tradingsymbol": sym,
                         "exchange": h.get("exchange", "NSE"),
-                        "quantity": sell_qty,
-                        "price": float(h.get("last_price") or 0),
-                        "amount": sell_qty * float(h.get("last_price") or 0),
+                        "quantity": real_diff,
+                        "price": float(h.get("average_price") or 0),
+                        "amount": real_diff * float(h.get("average_price") or 0),
                     })
+            else:
+                sell_qty = abs(diff)
+                log.info("Detecting SELL for %s: diff=%f (date=%s)", sym, sell_qty, tx_date)
+                detected.append({
+                    "id": f"DIF_SELL_{sym}_{tx_date}",
+                    "date": tx_date,
+                    "type": "SELL",
+                    "instrument_type": "EQUITY",
+                    "tradingsymbol": sym,
+                    "exchange": h.get("exchange", "NSE"),
+                    "quantity": sell_qty,
+                    "price": float(h.get("last_price") or 0),
+                    "amount": sell_qty * float(h.get("last_price") or 0),
+                })
 
-        # Check MF Diff
+        # MF Diff (same: use older date)
         for h in mf_holdings:
             key = (h["tradingsymbol"], h.get("folio", ""))
             new_qty = float(h.get("quantity") or 0)
             old_h = prev_mf.get(key)
             old_qty = float(old_h.get("quantity") or 0) if old_h else 0
-            
-            if abs(new_qty - old_qty) > 0.0001:
-                diff = new_qty - old_qty
-                if diff > 0:
-                    detected.append({
-                        "id": f"DIF_MF_BUY_{h['tradingsymbol']}_{today_str}",
-                        "date": today_str,
-                        "type": "BUY",
-                        "instrument_type": "MF",
-                        "tradingsymbol": h["tradingsymbol"],
-                        "exchange": "MF",
-                        "quantity": diff,
-                        "price": float(h.get("average_price") or 0),
-                        "amount": diff * float(h.get("average_price") or 0),
-                    })
-                else:
-                    sell_qty = abs(diff)
-                    detected.append({
-                        "id": f"DIF_MF_SELL_{h['tradingsymbol']}_{today_str}",
-                        "date": today_str,
-                        "type": "SELL",
-                        "instrument_type": "MF",
-                        "tradingsymbol": h["tradingsymbol"],
-                        "exchange": "MF",
-                        "quantity": sell_qty,
-                        "price": float(h.get("last_price") or 0),
-                        "amount": sell_qty * float(h.get("last_price") or 0),
-                    })
-            
+
+            if abs(new_qty - old_qty) < 0.0001:
+                continue
+            diff = new_qty - old_qty
+            if diff > 0:
+                detected.append({
+                    "id": f"DIF_MF_BUY_{h['tradingsymbol']}_{tx_date}",
+                    "date": tx_date,
+                    "type": "BUY",
+                    "instrument_type": "MF",
+                    "tradingsymbol": h["tradingsymbol"],
+                    "exchange": "MF",
+                    "quantity": diff,
+                    "price": float(h.get("average_price") or 0),
+                    "amount": diff * float(h.get("average_price") or 0),
+                })
+            else:
+                sell_qty = abs(diff)
+                detected.append({
+                    "id": f"DIF_MF_SELL_{h['tradingsymbol']}_{tx_date}",
+                    "date": tx_date,
+                    "type": "SELL",
+                    "instrument_type": "MF",
+                    "tradingsymbol": h["tradingsymbol"],
+                    "exchange": "MF",
+                    "quantity": sell_qty,
+                    "price": float(h.get("last_price") or 0),
+                    "amount": sell_qty * float(h.get("last_price") or 0),
+                })
+
     return detected
 
 
@@ -678,12 +702,12 @@ def save_portfolio_day(
     conn.close()
     
     if detected:
-        # Cleanup: Remove any previously detected transactions for THIS DATE
-        # This prevents duplicate/ghost entries if the user refreshes multiple times
-        # before the weekly archive logic kicks in.
+        # Cleanup: Remove any previously detected transactions for the date(s) we are writing.
+        # Inferred tx are attributed to the older (prev) date, so delete by those dates.
         conn2 = get_db()
-        # id starts with HOLDING_T1_ or DIF_
-        conn2.execute("DELETE FROM transactions WHERE date = ? AND (id LIKE 'HOLDING_T1_%' OR id LIKE 'DIF_%')", (date_str,))
+        dates_to_clean = {tx["date"] for tx in detected}
+        for dclean in dates_to_clean:
+            conn2.execute("DELETE FROM transactions WHERE date = ? AND (id LIKE 'HOLDING_T1_%' OR id LIKE 'DIF_%')", (dclean,))
         conn2.commit()
         conn2.close()
         save_transactions(detected)
@@ -828,14 +852,16 @@ def get_weekly_summary_rows_for_month(year_month: str) -> list:
 
 
 def get_holdings_for_date(d: date) -> dict | None:
-    """Return equity and MF holdings for a given date (from normalized tables). Same shape as get_cached_day but only holdings."""
+    """Return equity and MF holdings for a given date (from normalized tables). Includes cost for Invested summary."""
     cached = get_cached_day(d)
     if cached is None:
         return None
     return {
         "date": cached["date"],
         "portfolio_value": float(cached.get("portfolio_value", 0)),
+        "portfolio_cost": float(cached.get("portfolio_cost", 0)),
         "mf_portfolio_value": float(cached.get("mf_portfolio_value", 0)),
+        "mf_portfolio_cost": float(cached.get("mf_portfolio_cost", 0)),
         "equity": json.loads(cached.get("holdings_json") or "[]"),
         "mf": json.loads(cached.get("mf_holdings_json") or "[]"),
     }
