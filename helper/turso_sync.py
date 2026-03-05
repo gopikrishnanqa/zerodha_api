@@ -518,3 +518,11 @@ def save_transactions_turso(transactions: list) -> None:
         _execute_many(reqs)
         log.info("Turso sync: saved %d transactions", len(reqs))
 
+
+def delete_inferred_mf_transactions_turso() -> None:
+    """Remove inferred MF transactions (DIF_MF_*) from Turso transactions table."""
+    if not _turso_enabled():
+        return
+    _execute_one("DELETE FROM transactions WHERE id LIKE ?", ["DIF_MF_%"])
+    log.info("Turso sync: deleted inferred MF transactions (DIF_MF_*)")
+

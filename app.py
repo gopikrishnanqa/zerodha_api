@@ -293,6 +293,7 @@ def portfolio_summary():
             payload["last_year_portfolio_value"] = pv + mfv
             payload["last_year_portfolio_cost"] = pc + mfc
 
+        _enrich_mf_holdings_names(payload)
         resp = jsonify(payload)
         resp.headers["X-Data-Source"] = "cache" if payload.get("fromCache") else "live"
         return resp
@@ -364,7 +365,8 @@ def portfolio_cached():
             payload["last_year_value_date"] = cached_prev_year.get("date")
             payload["last_year_portfolio_value"] = pv + mfv
             payload["last_year_portfolio_cost"] = pc + mfc
-        
+
+        _enrich_mf_holdings_names(payload)
         log.info("Portfolio cached: serving %s (stale=%s)", cache_date, payload["is_stale"])
         resp = jsonify(payload)
         resp.headers["X-Data-Source"] = "cache"
@@ -382,6 +384,15 @@ def clear_cache():
     n = db.clear_portfolio_cache()
     log.info("Cache cleared: %d portfolio row(s) deleted from DB", n)
     return jsonify({"ok": True, "portfolio_rows_deleted": n})
+
+
+@app.route("/api/cleanup-inferred-mf-transactions", methods=["POST"])
+@require_auth
+def cleanup_inferred_mf_transactions():
+    """Remove phantom inferred MF transactions (DIF_MF_*) from ledger. Use once to fix false SELLs."""
+    db.init_db()
+    n = db.delete_inferred_mf_transactions()
+    return jsonify({"ok": True, "deleted": n})
 
 
 @app.route("/api/restore-archive", methods=["POST"])
@@ -760,20 +771,23 @@ def ledger_mf():
         except (json.JSONDecodeError, TypeError):
             pass
     
-    # Add fund names to rows
+    # Add fund names to rows (use fallback/AMFI when Kite didn't provide name)
     enriched_rows = []
     for r in rows:
         row = dict(r)
         sym = row.get("tradingsymbol", "")
-        # Try to get fund name from data_json first, then from mapping
         try:
             data = json.loads(row.get("data_json") or "{}")
             fund_name = data.get("fund", "")
+            isin = data.get("isin", "")
         except (json.JSONDecodeError, TypeError):
             fund_name = ""
+            isin = ""
         if not fund_name:
             fund_name = mf_name_map.get(sym, "")
-        row["fund_name"] = fund_name
+        if not fund_name:
+            fund_name = _get_mf_display_name(sym, isin, fund_name)
+        row["fund_name"] = fund_name or sym
         enriched_rows.append(row)
     
     return jsonify({"rows": enriched_rows})
@@ -1217,7 +1231,7 @@ def _get_amfi_scheme_map():
         if r.status_code != 200:
             return {}
         
-        scheme_map = {}  # isin -> {code, name, nav}
+        scheme_map = {}  # isin/code -> {code, name, nav}
         for line in r.text.split('\n'):
             parts = line.split(';')
             if len(parts) >= 5 and parts[0].strip().isdigit():
@@ -1237,6 +1251,47 @@ def _get_amfi_scheme_map():
     except Exception as e:
         log.warning("Failed to fetch AMFI scheme map: %s", str(e))
         return {}
+
+
+# Known MF display names when Kite/AMFI don't provide (e.g. Zerodha Coin URL has the name)
+_MF_NAME_FALLBACK = {
+    "INF966L01580": "Quant Multi Asset Allocation Fund - Direct Growth",
+}
+
+
+def _get_mf_display_name(tradingsymbol, isin, fund_from_api=None):
+    """Resolve MF display name: API value, fallback map, then AMFI lookup."""
+    if (fund_from_api or "").strip():
+        return fund_from_api.strip()
+    sym = (tradingsymbol or "").strip()
+    if sym in _MF_NAME_FALLBACK:
+        return _MF_NAME_FALLBACK[sym]
+    scheme_map = _get_amfi_scheme_map()
+    if scheme_map:
+        isin = (isin or "").strip()
+        if isin and isin in scheme_map:
+            return scheme_map[isin].get("name") or ""
+        if sym and sym in scheme_map:
+            return scheme_map[sym].get("name") or ""
+    return ""
+
+
+def _enrich_mf_holdings_names(payload):
+    """Fill missing 'fund' name for MF holdings using fallback map and AMFI."""
+    mf = payload.get("mf_holdings") or []
+    if not mf:
+        return
+    for h in mf:
+        if (h.get("fund") or "").strip():
+            continue
+        name = _get_mf_display_name(
+            h.get("tradingsymbol"),
+            h.get("isin"),
+            h.get("fund"),
+        )
+        if name:
+            h["fund"] = name
+            log.debug("Enriched MF name for %s -> %s", h.get("tradingsymbol"), name[:50])
 
 
 def _fetch_mf_nav_history_mfapi(scheme_code, start_date, today):

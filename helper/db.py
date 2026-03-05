@@ -557,41 +557,10 @@ def _detect_transactions_from_holdings(conn, d: date, holdings: list, mf_holding
                     "amount": sell_qty * float(h.get("last_price") or 0),
                 })
 
-        # MF Diff (same: use older date)
-        for h in mf_holdings:
-            key = (h["tradingsymbol"], h.get("folio", ""))
-            new_qty = float(h.get("quantity") or 0)
-            old_h = prev_mf.get(key)
-            old_qty = float(old_h.get("quantity") or 0) if old_h else 0
-
-            if abs(new_qty - old_qty) < 0.0001:
-                continue
-            diff = new_qty - old_qty
-            if diff > 0:
-                detected.append({
-                    "id": f"DIF_MF_BUY_{h['tradingsymbol']}_{tx_date}",
-                    "date": tx_date,
-                    "type": "BUY",
-                    "instrument_type": "MF",
-                    "tradingsymbol": h["tradingsymbol"],
-                    "exchange": "MF",
-                    "quantity": diff,
-                    "price": float(h.get("average_price") or 0),
-                    "amount": diff * float(h.get("average_price") or 0),
-                })
-            else:
-                sell_qty = abs(diff)
-                detected.append({
-                    "id": f"DIF_MF_SELL_{h['tradingsymbol']}_{tx_date}",
-                    "date": tx_date,
-                    "type": "SELL",
-                    "instrument_type": "MF",
-                    "tradingsymbol": h["tradingsymbol"],
-                    "exchange": "MF",
-                    "quantity": sell_qty,
-                    "price": float(h.get("last_price") or 0),
-                    "amount": sell_qty * float(h.get("last_price") or 0),
-                })
+        # MF: do not infer transactions from holdings diff. MF holdings snapshots can be
+        # missing or delayed for a fund (e.g. API quirk), so comparing prev vs current
+        # often produces false SELLs when the fund simply wasn't in the latest response.
+        # Ledger uses only explicit Kite MF orders from /mf/orders.
 
     return detected
 
@@ -836,6 +805,25 @@ def clear_portfolio_cache() -> int:
             ts.clear_portfolio_cache_turso()
         except Exception as e:
             log.warning("Turso clear_portfolio_cache failed: %s", e)
+    return n
+
+
+def delete_inferred_mf_transactions() -> int:
+    """Remove inferred MF transactions (DIF_MF_*) from ledger. Returns number deleted."""
+    conn = get_db()
+    cur = conn.execute("SELECT COUNT(*) FROM transactions WHERE id LIKE 'DIF_MF_%'")
+    n = cur.fetchone()[0]
+    conn.execute("DELETE FROM transactions WHERE id LIKE 'DIF_MF_%'")
+    conn.commit()
+    conn.close()
+    if n:
+        log.info("Removed %d inferred MF transaction(s) (DIF_MF_*) from ledger", n)
+        ts = _turso_sync()
+        if ts:
+            try:
+                ts.delete_inferred_mf_transactions_turso()
+            except Exception as e:
+                log.warning("Turso delete_inferred_mf_transactions failed: %s", e)
     return n
 
 

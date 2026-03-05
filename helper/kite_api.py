@@ -192,7 +192,12 @@ def fetch_orders_and_update_activity(session) -> tuple[float, float, float, floa
         qty = float(o.get("quantity") or 0)
         price = float(o.get("last_price") or 0) # MF orders often use NAV/Last Price
         amt = float(o.get("amount") or (qty * price))
-        tt = (o.get("transaction_type") or "").upper()
+        # Kite may use transaction_type (BUY/SELL) or order_type (PURCHASE/REDEMPTION) for MF
+        tt = (o.get("transaction_type") or o.get("order_type") or "").upper()
+        if tt in ("PURCHASE", "BUY"):
+            tt = "BUY"
+        elif tt in ("REDEMPTION", "SELL"):
+            tt = "SELL"
         mf_transactions.append({
             "id": o.get("order_id"),
             "date": o.get("order_timestamp", "").split(" ")[0] or today_key,

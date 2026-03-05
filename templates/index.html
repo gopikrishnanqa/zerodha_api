@@ -160,11 +160,20 @@
 
     async function checkAuth() {
       try {
-        const r = await fetch('/api/portfolio-summary', { credentials: 'same-origin', cache: 'no-store' });
+        // Fast first load: skip price-change lookups (49 Yahoo calls ~15–25s). UI shows in a few seconds; then we fill price changes in background.
+        const r = await fetch('/api/portfolio-summary?skip_price_changes=1', { credentials: 'same-origin', cache: 'no-store' });
         if (r.ok) {
           updateUI(true);
           const data = await r.json();
           loadPortfolioSummaryWithData(data);
+          // If payload has no price changes (first load, no cache), fetch full data in background and refresh UI when done.
+          const hasPriceChanges = data.price_changes && Object.keys(data.price_changes).length > 0;
+          if (!hasPriceChanges && (data.holdings || []).length > 0) {
+            fetch('/api/portfolio-summary?refresh=1', { credentials: 'same-origin', cache: 'no-store' })
+              .then(res => res.ok ? res.json() : null)
+              .then(full => { if (full) loadPortfolioSummaryWithData(full); })
+              .catch(() => {});
+          }
           if (!window._tursoSyncIntervalStarted) {
             window._tursoSyncIntervalStarted = true;
             setInterval(async () => {
