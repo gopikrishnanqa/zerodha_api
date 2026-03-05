@@ -1,0 +1,1561 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Animal Cards — 4 Designs</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700;800;900&family=DM+Serif+Display:ital@0;1&display=swap"
+        rel="stylesheet" />
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        body {
+            background: #dde2e8;
+            font-family: 'Outfit', sans-serif;
+            padding: 48px 24px 60px;
+        }
+
+        /* ── section titles ── */
+        .section-title {
+            text-align: center;
+            font-family: 'Outfit', sans-serif;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 5px;
+            text-transform: uppercase;
+            color: #94a3b8;
+            margin: 56px 0 24px;
+        }
+
+        .section-title:first-of-type {
+            margin-top: 0
+        }
+
+        .section-title span {
+            background: #dde2e8;
+            padding: 0 16px;
+            position: relative;
+        }
+
+        .section-title::before {
+            content: '';
+            display: block;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #b0bcc8, transparent);
+            position: relative;
+            top: 10px;
+        }
+
+        .pair {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        /* ════════════════════════════════════════════
+   DESIGN 1 ─ VIBRANT GRADIENT HERO
+   Full bleed image, bold colour gradient overlay,
+   floating pill stats, clean white info below
+════════════════════════════════════════════ */
+        .g1 {
+            width: 340px;
+            border-radius: 28px;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.14), 0 4px 12px rgba(0, 0, 0, 0.08);
+            animation: up .7s cubic-bezier(.16, 1, .3, 1) both;
+            transition: transform .3s ease, box-shadow .3s ease;
+        }
+
+        .g1:nth-child(2) {
+            animation-delay: .12s
+        }
+
+        .g1:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 32px 80px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        @keyframes up {
+            from {
+                opacity: 0;
+                transform: translateY(28px)
+            }
+
+            to {
+                opacity: 1;
+                transform: none
+            }
+        }
+
+        /* sphynx = sunset coral-orange */
+        .g1-a {
+            --g1: linear-gradient(160deg, #ff6b35, #f7c59f, #ff8c69);
+        }
+
+        /* wasp = electric violet-blue */
+        .g1-b {
+            --g1: linear-gradient(160deg, #667eea, #764ba2, #a78bfa);
+        }
+
+        .g1-hero {
+            position: relative;
+            height: 240px;
+            overflow: hidden;
+        }
+
+        .g1-hero img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center 15%;
+            display: block;
+            transition: transform 10s ease;
+        }
+
+        .g1:hover .g1-hero img {
+            transform: scale(1.08)
+        }
+
+        .g1-hero-overlay {
+            position: absolute;
+            inset: 0;
+            background: var(--g1);
+            opacity: .55;
+            mix-blend-mode: multiply;
+        }
+
+        .g1-hero-bottom {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(0, 0, 0, .7) 0%, transparent 55%);
+        }
+
+        .g1-badge {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            z-index: 3;
+            background: rgba(255, 255, 255, .2);
+            backdrop-filter: blur(10px);
+            border: 1.5px solid rgba(255, 255, 255, .5);
+            color: #fff;
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            padding: 5px 13px;
+            border-radius: 100px;
+        }
+
+        .g1-title {
+            position: absolute;
+            bottom: 16px;
+            left: 18px;
+            right: 18px;
+            z-index: 3;
+        }
+
+        .g1-sub {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, .75);
+            margin-bottom: 4px;
+        }
+
+        .g1-name {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 46px;
+            color: #fff;
+            line-height: .95;
+            letter-spacing: 2px;
+        }
+
+        /* floating stat pills */
+        .g1-pills {
+            display: flex;
+            gap: 7px;
+            padding: 16px 16px 0;
+            flex-wrap: wrap;
+        }
+
+        .g1-pill {
+            flex: 1;
+            min-width: 60px;
+            padding: 10px 8px;
+            border-radius: 14px;
+            text-align: center;
+        }
+
+        .g1-a .g1-pill {
+            background: #fff7f3;
+            border: 1.5px solid rgba(255, 107, 53, .15);
+        }
+
+        .g1-b .g1-pill {
+            background: #f5f3ff;
+            border: 1.5px solid rgba(102, 126, 234, .18);
+        }
+
+        .g1-pill .pv {
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .g1-a .pv {
+            color: #d44a1a;
+        }
+
+        .g1-b .pv {
+            color: #5046e4;
+        }
+
+        .g1-pill .pl {
+            font-size: 8px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-top: 2px;
+        }
+
+        .g1-a .pl {
+            color: rgba(212, 74, 26, .45);
+        }
+
+        .g1-b .pl {
+            color: rgba(80, 70, 228, .4);
+        }
+
+        /* info rows */
+        .g1-body {
+            padding: 14px 16px 8px;
+        }
+
+        .g1-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 9px 12px;
+            border-radius: 11px;
+            margin-bottom: 6px;
+        }
+
+        .g1-a .g1-row {
+            background: #fff7f3;
+            border: 1.5px solid rgba(255, 107, 53, .1);
+        }
+
+        .g1-b .g1-row {
+            background: #f5f3ff;
+            border: 1.5px solid rgba(102, 126, 234, .12);
+        }
+
+        .g1-row .rk {
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .g1-a .rk {
+            color: #d44a1a;
+        }
+
+        .g1-b .rk {
+            color: #5046e4;
+        }
+
+        .g1-row .rv {
+            font-size: 13px;
+            font-weight: 800;
+            color: #1e1e2e;
+        }
+
+        /* name chips */
+        .g1-names {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 7px;
+            padding: 0 16px 18px;
+        }
+
+        .g1-chip {
+            border-radius: 14px;
+            padding: 12px 14px;
+            text-align: center;
+        }
+
+        .g1-a .g1-chip:first-child {
+            background: linear-gradient(135deg, #ff6b35, #ff8c69);
+        }
+
+        .g1-a .g1-chip:last-child {
+            background: linear-gradient(135deg, #f7c59f, #ffb088);
+        }
+
+        .g1-b .g1-chip:first-child {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+        }
+
+        .g1-b .g1-chip:last-child {
+            background: linear-gradient(135deg, #a78bfa, #818cf8);
+        }
+
+        .g1-chip .cl {
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, .7);
+            margin-bottom: 3px;
+        }
+
+        .g1-chip .cv {
+            font-size: 17px;
+            font-weight: 900;
+            color: #fff;
+        }
+
+
+        /* ════════════════════════════════════════════
+   DESIGN 2 ─ HORIZON SPLIT
+   Left half = coloured + image, Right half = info
+   Wide landscape card
+════════════════════════════════════════════ */
+        .g2 {
+            width: 700px;
+            border-radius: 26px;
+            overflow: hidden;
+            background: #fff;
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.14);
+            animation: up .7s cubic-bezier(.16, 1, .3, 1) both;
+            transition: transform .3s ease, box-shadow .3s ease;
+            margin: 0 auto;
+        }
+
+        .g2:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 32px 80px rgba(0, 0, 0, 0.2);
+        }
+
+        .g2:nth-child(2) {
+            animation-delay: .12s;
+        }
+
+        .g2-pair {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            align-items: center;
+            width: 100%;
+        }
+
+        /* left visual panel */
+        .g2-left {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .g2-left img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center 20%;
+            display: block;
+        }
+
+        /* sphynx = peach, wasp = sky */
+        .g2-a .g2-left::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(160deg, rgba(255, 180, 120, .6), rgba(255, 120, 80, .4));
+        }
+
+        .g2-b .g2-left::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(160deg, rgba(100, 200, 220, .6), rgba(30, 150, 200, .4));
+        }
+
+        .g2-badge {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            z-index: 2;
+            background: rgba(255, 255, 255, .88);
+            backdrop-filter: blur(8px);
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            padding: 5px 12px;
+            border-radius: 100px;
+        }
+
+        .g2-a .g2-badge {
+            color: #c0440a;
+        }
+
+        .g2-b .g2-badge {
+            color: #0a6ea0;
+        }
+
+        .g2-label {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 2;
+            padding: 16px;
+            background: linear-gradient(to top, rgba(0, 0, 0, .55), transparent);
+        }
+
+        .g2-label .sub {
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, .8);
+            margin-bottom: 3px;
+        }
+
+        .g2-label .name {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 36px;
+            color: #fff;
+            line-height: 1;
+            letter-spacing: 1px;
+        }
+
+        /* right info panel */
+        .g2-right {
+            padding: 20px 22px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .g2-topbar {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 7px;
+            margin-bottom: 14px;
+        }
+
+        .g2-stat {
+            border-radius: 12px;
+            padding: 10px 12px;
+        }
+
+        .g2-a .g2-stat {
+            background: #fff7f3;
+            border: 1.5px solid rgba(255, 120, 60, .12);
+        }
+
+        .g2-b .g2-stat {
+            background: #f0faff;
+            border: 1.5px solid rgba(30, 150, 200, .12);
+        }
+
+        .g2-stat .sv {
+            font-size: 14px;
+            font-weight: 800;
+        }
+
+        .g2-a .g2-stat .sv {
+            color: #c0440a;
+        }
+
+        .g2-b .g2-stat .sv {
+            color: #0a6ea0;
+        }
+
+        .g2-stat .sl {
+            font-size: 8.5px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+        }
+
+        .g2-a .g2-stat .sl {
+            color: rgba(192, 68, 10, .4);
+        }
+
+        .g2-b .g2-stat .sl {
+            color: rgba(10, 110, 160, .4);
+        }
+
+        .g2-divider {
+            height: 1px;
+            background: #f0f0f0;
+            margin-bottom: 12px;
+        }
+
+        .g2-facts {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .g2-fact {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 7px 10px;
+            border-radius: 9px;
+        }
+
+        .g2-a .g2-fact {
+            background: #fff7f3;
+        }
+
+        .g2-b .g2-fact {
+            background: #f0faff;
+        }
+
+        .g2-fact .fk {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .g2-a .fk {
+            color: #d0552a;
+        }
+
+        .g2-b .fk {
+            color: #1278aa;
+        }
+
+        .g2-fact .fv {
+            font-size: 12px;
+            font-weight: 800;
+            color: #1a1a2e;
+        }
+
+        .g2-names {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 7px;
+        }
+
+        .g2-chip {
+            border-radius: 12px;
+            padding: 10px 12px;
+            text-align: center;
+        }
+
+        .g2-a .g2-chip:first-child {
+            background: linear-gradient(135deg, #ff8c42, #ffb088);
+        }
+
+        .g2-a .g2-chip:last-child {
+            background: linear-gradient(135deg, #ff6b35, #f7a07a);
+        }
+
+        .g2-b .g2-chip:first-child {
+            background: linear-gradient(135deg, #2eb8e6, #74d4f0);
+        }
+
+        .g2-b .g2-chip:last-child {
+            background: linear-gradient(135deg, #1a8fbf, #50c4e8);
+        }
+
+        .g2-chip .cl {
+            font-size: 8.5px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, .7);
+            margin-bottom: 2px;
+        }
+
+        .g2-chip .cv {
+            font-size: 15px;
+            font-weight: 900;
+            color: #fff;
+        }
+
+
+        /* ════════════════════════════════════════════
+   DESIGN 3 ─ FROSTED GLASS CARD
+   Warm/cool blurred backgrounds, glassmorphism
+════════════════════════════════════════════ */
+        .g3 {
+            width: 340px;
+            border-radius: 28px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+            animation: up .7s cubic-bezier(.16, 1, .3, 1) both;
+            transition: transform .3s ease;
+        }
+
+        .g3:nth-child(2) {
+            animation-delay: .12s
+        }
+
+        .g3:hover {
+            transform: translateY(-8px)
+        }
+
+        /* full bleed bg image */
+        .g3-bg {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+        }
+
+        .g3-bg img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center 20%;
+        }
+
+        .g3-a .g3-bg::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(160deg, rgba(255, 228, 180, .82), rgba(255, 180, 120, .78));
+        }
+
+        .g3-b .g3-bg::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(160deg, rgba(180, 240, 230, .82), rgba(100, 210, 200, .78));
+        }
+
+        .g3-content {
+            position: relative;
+            z-index: 1;
+            padding: 18px 16px 16px;
+        }
+
+        /* top header */
+        .g3-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 160px;
+        }
+
+        .g3-badge {
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            padding: 5px 12px;
+            border-radius: 100px;
+            background: rgba(255, 255, 255, .6);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, .8);
+        }
+
+        .g3-a .g3-badge {
+            color: #b04010;
+        }
+
+        .g3-b .g3-badge {
+            color: #077a6e;
+        }
+
+        /* frosted info panel */
+        .g3-glass {
+            background: rgba(255, 255, 255, .65);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1.5px solid rgba(255, 255, 255, .85);
+            border-radius: 22px;
+            padding: 18px 16px 16px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, .08);
+        }
+
+        .g3-taxon {
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .g3-a .g3-taxon {
+            color: #c05020;
+        }
+
+        .g3-b .g3-taxon {
+            color: #0a8070;
+        }
+
+        .g3-name {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 44px;
+            line-height: .95;
+            letter-spacing: 2px;
+            margin-bottom: 14px;
+        }
+
+        .g3-a .g3-name {
+            color: #2a0e00;
+        }
+
+        .g3-b .g3-name {
+            color: #012820;
+        }
+
+        /* stat row */
+        .g3-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .g3-stat {
+            border-radius: 12px;
+            padding: 8px 6px;
+            text-align: center;
+        }
+
+        .g3-a .g3-stat {
+            background: rgba(255, 140, 60, .15);
+            border: 1px solid rgba(255, 140, 60, .25);
+        }
+
+        .g3-b .g3-stat {
+            background: rgba(10, 180, 160, .15);
+            border: 1px solid rgba(10, 180, 160, .25);
+        }
+
+        .g3-stat .sv {
+            font-size: 11px;
+            font-weight: 800;
+        }
+
+        .g3-a .g3-stat .sv {
+            color: #b04010;
+        }
+
+        .g3-b .g3-stat .sv {
+            color: #077a6e;
+        }
+
+        .g3-stat .sl {
+            font-size: 7.5px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            opacity: .55;
+            margin-top: 1px;
+        }
+
+        .g3-a .g3-stat .sl {
+            color: #b04010;
+        }
+
+        .g3-b .g3-stat .sl {
+            color: #077a6e;
+        }
+
+        /* grid info */
+        .g3-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .g3-cell {
+            border-radius: 12px;
+            padding: 9px 11px;
+        }
+
+        .g3-a .g3-cell {
+            background: rgba(255, 140, 60, .12);
+            border: 1px solid rgba(255, 140, 60, .18);
+        }
+
+        .g3-b .g3-cell {
+            background: rgba(10, 180, 160, .1);
+            border: 1px solid rgba(10, 180, 160, .18);
+        }
+
+        .g3-cell .ck {
+            font-size: 8.5px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+
+        .g3-a .ck {
+            color: #c05020;
+        }
+
+        .g3-b .ck {
+            color: #0a8070;
+        }
+
+        .g3-cell .cv {
+            font-size: 13px;
+            font-weight: 800;
+            color: #1a1a2e;
+        }
+
+        .g3-names {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+
+        .g3-chip {
+            border-radius: 12px;
+            padding: 10px 12px;
+            text-align: center;
+        }
+
+        .g3-a .g3-chip:first-child {
+            background: rgba(255, 120, 60, .3);
+            border: 1.5px solid rgba(255, 120, 60, .4);
+        }
+
+        .g3-a .g3-chip:last-child {
+            background: rgba(240, 100, 50, .25);
+            border: 1.5px solid rgba(240, 100, 50, .35);
+        }
+
+        .g3-b .g3-chip:first-child {
+            background: rgba(10, 180, 160, .2);
+            border: 1.5px solid rgba(10, 180, 160, .35);
+        }
+
+        .g3-b .g3-chip:last-child {
+            background: rgba(0, 160, 145, .2);
+            border: 1.5px solid rgba(0, 160, 145, .35);
+        }
+
+        .g3-chip .cl {
+            font-size: 8.5px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+
+        .g3-a .g3-chip .cl {
+            color: rgba(160, 50, 10, .6);
+        }
+
+        .g3-b .g3-chip .cl {
+            color: rgba(5, 90, 80, .6);
+        }
+
+        .g3-chip .cv2 {
+            font-size: 16px;
+            font-weight: 900;
+            color: #1a1a2e;
+        }
+
+
+        /* ════════════════════════════════════════════
+   DESIGN 4 ─ BOLD TYPOGRAPHIC POSTER
+   Large typography, colour blocked sections
+════════════════════════════════════════════ */
+        .g4 {
+            width: 340px;
+            border-radius: 0;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.14);
+            animation: up .7s cubic-bezier(.16, 1, .3, 1) both;
+            transition: transform .3s ease, box-shadow .3s ease;
+        }
+
+        .g4:nth-child(2) {
+            animation-delay: .12s
+        }
+
+        .g4:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 32px 80px rgba(0, 0, 0, 0.2);
+        }
+
+        /* colour block header */
+        .g4-header {
+            padding: 20px 20px 16px;
+        }
+
+        .g4-a .g4-header {
+            background: #ff5a36;
+        }
+
+        .g4-b .g4-header {
+            background: #00b4cc;
+        }
+
+        .g4-eyebrow {
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, .7);
+            margin-bottom: 6px;
+        }
+
+        .g4-name {
+            font-family: 'Playfair Display', serif;
+            font-size: 44px;
+            font-weight: 900;
+            color: #fff;
+            line-height: .95;
+        }
+
+        .g4-sub {
+            font-size: 11px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, .75);
+            margin-top: 6px;
+            font-style: italic;
+        }
+
+        /* image strip */
+        .g4-img {
+            height: 190px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .g4-img img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center 20%;
+            display: block;
+            transition: transform 9s ease;
+        }
+
+        .g4:hover .g4-img img {
+            transform: scale(1.06)
+        }
+
+        .g4-img::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 60px;
+            background: linear-gradient(to top, #fff, transparent);
+        }
+
+        /* stat stripe */
+        .g4-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            border-top: 3px solid;
+            border-bottom: 3px solid;
+        }
+
+        .g4-a .g4-stats {
+            border-color: #ff5a36;
+        }
+
+        .g4-b .g4-stats {
+            border-color: #00b4cc;
+        }
+
+        .g4-stat {
+            padding: 11px 6px;
+            text-align: center;
+            border-right: 1px solid #eee;
+        }
+
+        .g4-stat:last-child {
+            border-right: none
+        }
+
+        .g4-stat .sv {
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .g4-a .g4-stat .sv {
+            color: #d63010;
+        }
+
+        .g4-b .g4-stat .sv {
+            color: #007a8c;
+        }
+
+        .g4-stat .sl {
+            font-size: 8px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: #aaa;
+            margin-top: 1px;
+        }
+
+        /* info table */
+        .g4-body {
+            padding: 14px 18px 12px;
+        }
+
+        .g4-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 12px;
+        }
+
+        .g4-table tr {
+            border-bottom: 1px solid #f5f5f5;
+        }
+
+        .g4-table tr:last-child {
+            border-bottom: none
+        }
+
+        .g4-table td {
+            padding: 8px 4px;
+            font-size: 13px;
+            vertical-align: middle;
+        }
+
+        .g4-table td:first-child {
+            font-weight: 700;
+            font-size: 9px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            width: 42%;
+        }
+
+        .g4-a .g4-table td:first-child {
+            color: #ff5a36;
+        }
+
+        .g4-b .g4-table td:first-child {
+            color: #00a0b8;
+        }
+
+        .g4-table td:last-child {
+            font-weight: 800;
+            color: #1a1a2e;
+        }
+
+        /* name footer */
+        .g4-footer {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .g4-nc {
+            padding: 14px 16px;
+            text-align: center;
+        }
+
+        .g4-a .g4-nc:first-child {
+            background: #ff5a36;
+        }
+
+        .g4-a .g4-nc:last-child {
+            background: #ff7a5a;
+        }
+
+        .g4-b .g4-nc:first-child {
+            background: #00b4cc;
+        }
+
+        .g4-b .g4-nc:last-child {
+            background: #00d0e8;
+        }
+
+        .g4-nc .nl {
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, .7);
+            margin-bottom: 2px;
+        }
+
+        .g4-nc .nv {
+            font-size: 18px;
+            font-weight: 900;
+            color: #fff;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ══════════════════════
+  DESIGN 1 — GRADIENT HERO
+══════════════════════ -->
+    <div class="section-title"><span>① Vibrant Gradient Hero</span></div>
+    <div class="pair">
+
+        <div class="g1 g1-a">
+            <div class="g1-hero">
+                <img src="https://randanimal.com/images/webp/sphynx.webp" alt="Sphynx" />
+                <div class="g1-hero-overlay"></div>
+                <div class="g1-hero-bottom"></div>
+                <div class="g1-badge">🐾 Mammal</div>
+                <div class="g1-title">
+                    <div class="g1-sub">Domestic · Cat</div>
+                    <div class="g1-name">Sphynx</div>
+                </div>
+            </div>
+            <div class="g1-pills">
+                <div class="g1-pill">
+                    <div class="pv">12–15yr</div>
+                    <div class="pl">Lifespan</div>
+                </div>
+                <div class="g1-pill">
+                    <div class="pv">8–12lb</div>
+                    <div class="pl">Weight</div>
+                </div>
+                <div class="g1-pill">
+                    <div class="pv">8–10in</div>
+                    <div class="pl">Length</div>
+                </div>
+                <div class="g1-pill">
+                    <div class="pv">Home</div>
+                    <div class="pl">Habitat</div>
+                </div>
+            </div>
+            <div class="g1-body">
+                <div class="g1-row"><span class="rk">🍖 Diet</span><span class="rv">Omnivore</span></div>
+                <div class="g1-row"><span class="rk">🧬 Class</span><span class="rv">Mammal</span></div>
+                <div class="g1-row"><span class="rk">🐾 Offspring</span><span class="rv">Kitten</span></div>
+                <div class="g1-row"><span class="rk">⚡ Top Speed</span><span class="rv">N/A</span></div>
+            </div>
+            <div class="g1-names">
+                <div class="g1-chip">
+                    <div class="cl">♂ Male</div>
+                    <div class="cv">Tom</div>
+                </div>
+                <div class="g1-chip">
+                    <div class="cl">♀ Female</div>
+                    <div class="cv">Molly</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="g1 g1-b">
+            <div class="g1-hero">
+                <img src="https://randanimal.com/images/webp/black_wasp.webp" alt="Black Wasp" />
+                <div class="g1-hero-overlay"></div>
+                <div class="g1-hero-bottom"></div>
+                <div class="g1-badge">🪲 Insect</div>
+                <div class="g1-title">
+                    <div class="g1-sub">Insect · Hymenoptera</div>
+                    <div class="g1-name">Black Wasp</div>
+                </div>
+            </div>
+            <div class="g1-pills">
+                <div class="g1-pill">
+                    <div class="pv">1–2yr</div>
+                    <div class="pl">Lifespan</div>
+                </div>
+                <div class="g1-pill">
+                    <div class="pv">.05–.1g</div>
+                    <div class="pl">Weight</div>
+                </div>
+                <div class="g1-pill">
+                    <div class="pv">0.5–1in</div>
+                    <div class="pl">Length</div>
+                </div>
+                <div class="g1-pill">
+                    <div class="pv">Wild</div>
+                    <div class="pl">Habitat</div>
+                </div>
+            </div>
+            <div class="g1-body">
+                <div class="g1-row"><span class="rk">🍖 Diet</span><span class="rv">Omnivore</span></div>
+                <div class="g1-row"><span class="rk">🧬 Class</span><span class="rv">Insect</span></div>
+                <div class="g1-row"><span class="rk">🐛 Offspring</span><span class="rv">Larva</span></div>
+                <div class="g1-row"><span class="rk">⚡ Top Speed</span><span class="rv">N/A</span></div>
+            </div>
+            <div class="g1-names">
+                <div class="g1-chip">
+                    <div class="cl">♂ Male</div>
+                    <div class="cv">Drone</div>
+                </div>
+                <div class="g1-chip">
+                    <div class="cl">♀ Female</div>
+                    <div class="cv">Queen</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ══════════════════════
+  DESIGN 2 — HORIZON SPLIT
+══════════════════════ -->
+    <div class="section-title"><span>② Horizon Split — Wide Landscape</span></div>
+    <div class="g2-pair">
+
+        <div class="g2 g2-a">
+            <div class="g2-left">
+                <img src="https://randanimal.com/images/webp/sphynx.webp" alt="Sphynx" />
+                <div class="g2-badge">🐾 Mammal</div>
+                <div class="g2-label">
+                    <div class="sub">Domestic · Cat</div>
+                    <div class="name">Sphynx</div>
+                </div>
+            </div>
+            <div class="g2-right">
+                <div class="g2-topbar">
+                    <div class="g2-stat">
+                        <div class="sv">12–15 yr</div>
+                        <div class="sl">Lifespan</div>
+                    </div>
+                    <div class="g2-stat">
+                        <div class="sv">8–12 lb</div>
+                        <div class="sl">Weight</div>
+                    </div>
+                    <div class="g2-stat">
+                        <div class="sv">8–10 in</div>
+                        <div class="sl">Length</div>
+                    </div>
+                    <div class="g2-stat">
+                        <div class="sv">Domestic</div>
+                        <div class="sl">Habitat</div>
+                    </div>
+                </div>
+                <div class="g2-divider"></div>
+                <div class="g2-facts">
+                    <div class="g2-fact"><span class="fk">Diet</span><span class="fv">Omnivore</span></div>
+                    <div class="g2-fact"><span class="fk">Class</span><span class="fv">Mammal</span></div>
+                    <div class="g2-fact"><span class="fk">Offspring</span><span class="fv">Kitten</span></div>
+                    <div class="g2-fact"><span class="fk">Top Speed</span><span class="fv">N/A</span></div>
+                </div>
+                <div class="g2-names">
+                    <div class="g2-chip">
+                        <div class="cl">♂ Male</div>
+                        <div class="cv">Tom</div>
+                    </div>
+                    <div class="g2-chip">
+                        <div class="cl">♀ Female</div>
+                        <div class="cv">Molly</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="g2 g2-b">
+            <div class="g2-left">
+                <img src="https://randanimal.com/images/webp/black_wasp.webp" alt="Black Wasp" />
+                <div class="g2-badge">🪲 Insect</div>
+                <div class="g2-label">
+                    <div class="sub">Insect · Hymenoptera</div>
+                    <div class="name">Black Wasp</div>
+                </div>
+            </div>
+            <div class="g2-right">
+                <div class="g2-topbar">
+                    <div class="g2-stat">
+                        <div class="sv">1–2 yr</div>
+                        <div class="sl">Lifespan</div>
+                    </div>
+                    <div class="g2-stat">
+                        <div class="sv">.05–.1g</div>
+                        <div class="sl">Weight</div>
+                    </div>
+                    <div class="g2-stat">
+                        <div class="sv">0.5–1in</div>
+                        <div class="sl">Length</div>
+                    </div>
+                    <div class="g2-stat">
+                        <div class="sv">Wild</div>
+                        <div class="sl">Habitat</div>
+                    </div>
+                </div>
+                <div class="g2-divider"></div>
+                <div class="g2-facts">
+                    <div class="g2-fact"><span class="fk">Diet</span><span class="fv">Omnivore</span></div>
+                    <div class="g2-fact"><span class="fk">Class</span><span class="fv">Insect</span></div>
+                    <div class="g2-fact"><span class="fk">Offspring</span><span class="fv">Larva</span></div>
+                    <div class="g2-fact"><span class="fk">Top Speed</span><span class="fv">N/A</span></div>
+                </div>
+                <div class="g2-names">
+                    <div class="g2-chip">
+                        <div class="cl">♂ Male</div>
+                        <div class="cv">Drone</div>
+                    </div>
+                    <div class="g2-chip">
+                        <div class="cl">♀ Female</div>
+                        <div class="cv">Queen</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ══════════════════════
+  DESIGN 3 — FROSTED GLASS
+══════════════════════ -->
+    <div class="section-title"><span>③ Frosted Glass — Blurred Background</span></div>
+    <div class="pair">
+
+        <div class="g3 g3-a">
+            <div class="g3-bg"><img src="https://randanimal.com/images/webp/sphynx.webp" alt="Sphynx" /></div>
+            <div class="g3-content">
+                <div class="g3-header">
+                    <div class="g3-badge">🐾 Mammal</div>
+                </div>
+                <div class="g3-glass">
+                    <div class="g3-taxon">Domestic · Cat</div>
+                    <div class="g3-name">Sphynx</div>
+                    <div class="g3-stats">
+                        <div class="g3-stat">
+                            <div class="sv">12–15y</div>
+                            <div class="sl">Life</div>
+                        </div>
+                        <div class="g3-stat">
+                            <div class="sv">8–12lb</div>
+                            <div class="sl">Weight</div>
+                        </div>
+                        <div class="g3-stat">
+                            <div class="sv">8–10in</div>
+                            <div class="sl">Size</div>
+                        </div>
+                        <div class="g3-stat">
+                            <div class="sv">Home</div>
+                            <div class="sl">Habitat</div>
+                        </div>
+                    </div>
+                    <div class="g3-grid">
+                        <div class="g3-cell">
+                            <div class="ck">Diet</div>
+                            <div class="cv">Omnivore</div>
+                        </div>
+                        <div class="g3-cell">
+                            <div class="ck">Class</div>
+                            <div class="cv">Mammal</div>
+                        </div>
+                        <div class="g3-cell">
+                            <div class="ck">Offspring</div>
+                            <div class="cv">Kitten</div>
+                        </div>
+                        <div class="g3-cell">
+                            <div class="ck">Top Speed</div>
+                            <div class="cv">N/A</div>
+                        </div>
+                    </div>
+                    <div class="g3-names">
+                        <div class="g3-chip">
+                            <div class="cl">♂ Male</div>
+                            <div class="cv2">Tom</div>
+                        </div>
+                        <div class="g3-chip">
+                            <div class="cl">♀ Female</div>
+                            <div class="cv2">Molly</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="g3 g3-b">
+            <div class="g3-bg"><img src="https://randanimal.com/images/webp/black_wasp.webp" alt="Black Wasp" /></div>
+            <div class="g3-content">
+                <div class="g3-header">
+                    <div class="g3-badge">🪲 Insect</div>
+                </div>
+                <div class="g3-glass">
+                    <div class="g3-taxon">Insect · Hymenoptera</div>
+                    <div class="g3-name">Black Wasp</div>
+                    <div class="g3-stats">
+                        <div class="g3-stat">
+                            <div class="sv">1–2yr</div>
+                            <div class="sl">Life</div>
+                        </div>
+                        <div class="g3-stat">
+                            <div class="sv">.05–.1g</div>
+                            <div class="sl">Weight</div>
+                        </div>
+                        <div class="g3-stat">
+                            <div class="sv">0.5–1in</div>
+                            <div class="sl">Size</div>
+                        </div>
+                        <div class="g3-stat">
+                            <div class="sv">Wild</div>
+                            <div class="sl">Habitat</div>
+                        </div>
+                    </div>
+                    <div class="g3-grid">
+                        <div class="g3-cell">
+                            <div class="ck">Diet</div>
+                            <div class="cv">Omnivore</div>
+                        </div>
+                        <div class="g3-cell">
+                            <div class="ck">Class</div>
+                            <div class="cv">Insect</div>
+                        </div>
+                        <div class="g3-cell">
+                            <div class="ck">Offspring</div>
+                            <div class="cv">Larva</div>
+                        </div>
+                        <div class="g3-cell">
+                            <div class="ck">Top Speed</div>
+                            <div class="cv">N/A</div>
+                        </div>
+                    </div>
+                    <div class="g3-names">
+                        <div class="g3-chip">
+                            <div class="cl">♂ Male</div>
+                            <div class="cv2">Drone</div>
+                        </div>
+                        <div class="g3-chip">
+                            <div class="cl">♀ Female</div>
+                            <div class="cv2">Queen</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ══════════════════════
+  DESIGN 4 — BOLD POSTER
+══════════════════════ -->
+    <div class="section-title"><span>④ Bold Typographic Poster</span></div>
+    <div class="pair">
+
+        <div class="g4 g4-a">
+            <div class="g4-header">
+                <div class="g4-eyebrow">🐾 Domestic · Cat · Mammal</div>
+                <div class="g4-name">Sphynx</div>
+                <div class="g4-sub">Felis catus — Hairless domestic cat</div>
+            </div>
+            <div class="g4-img"><img src="https://randanimal.com/images/webp/sphynx.webp" alt="Sphynx" /></div>
+            <div class="g4-stats">
+                <div class="g4-stat">
+                    <div class="sv">12–15yr</div>
+                    <div class="sl">Lifespan</div>
+                </div>
+                <div class="g4-stat">
+                    <div class="sv">8–12lb</div>
+                    <div class="sl">Weight</div>
+                </div>
+                <div class="g4-stat">
+                    <div class="sv">8–10in</div>
+                    <div class="sl">Length</div>
+                </div>
+                <div class="g4-stat">
+                    <div class="sv">Home</div>
+                    <div class="sl">Habitat</div>
+                </div>
+            </div>
+            <div class="g4-body">
+                <table class="g4-table">
+                    <tr>
+                        <td>Diet</td>
+                        <td>Omnivore</td>
+                    </tr>
+                    <tr>
+                        <td>Class</td>
+                        <td>Mammal</td>
+                    </tr>
+                    <tr>
+                        <td>Offspring</td>
+                        <td>Kitten</td>
+                    </tr>
+                    <tr>
+                        <td>Top Speed</td>
+                        <td>N/A</td>
+                    </tr>
+                </table>
+            </div>
+            <div class="g4-footer">
+                <div class="g4-nc">
+                    <div class="nl">♂ Male</div>
+                    <div class="nv">Tom</div>
+                </div>
+                <div class="g4-nc">
+                    <div class="nl">♀ Female</div>
+                    <div class="nv">Molly</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="g4 g4-b">
+            <div class="g4-header">
+                <div class="g4-eyebrow">🪲 Insect · Hymenoptera · Wild</div>
+                <div class="g4-name">Black Wasp</div>
+                <div class="g4-sub">Sphex pensylvanicus — Great black wasp</div>
+            </div>
+            <div class="g4-img"><img src="https://randanimal.com/images/webp/black_wasp.webp" alt="Black Wasp" /></div>
+            <div class="g4-stats">
+                <div class="g4-stat">
+                    <div class="sv">1–2yr</div>
+                    <div class="sl">Lifespan</div>
+                </div>
+                <div class="g4-stat">
+                    <div class="sv">.05–.1g</div>
+                    <div class="sl">Weight</div>
+                </div>
+                <div class="g4-stat">
+                    <div class="sv">0.5–1in</div>
+                    <div class="sl">Length</div>
+                </div>
+                <div class="g4-stat">
+                    <div class="sv">Wild</div>
+                    <div class="sl">Habitat</div>
+                </div>
+            </div>
+            <div class="g4-body">
+                <table class="g4-table">
+                    <tr>
+                        <td>Diet</td>
+                        <td>Omnivore</td>
+                    </tr>
+                    <tr>
+                        <td>Class</td>
+                        <td>Insect</td>
+                    </tr>
+                    <tr>
+                        <td>Offspring</td>
+                        <td>Larva</td>
+                    </tr>
+                    <tr>
+                        <td>Top Speed</td>
+                        <td>N/A</td>
+                    </tr>
+                </table>
+            </div>
+            <div class="g4-footer">
+                <div class="g4-nc">
+                    <div class="nl">♂ Male</div>
+                    <div class="nl">Drone</div>
+                </div>
+                <div class="g4-nc">
+                    <div class="nl">♀ Female</div>
+                    <div class="nv">Queen</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+
+</html>

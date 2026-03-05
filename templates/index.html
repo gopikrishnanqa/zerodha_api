@@ -23,6 +23,7 @@
         <button id="btn-sync-turso" class="btn btn-secondary" style="display:none;" title="Push local DB to Turso">Sync to Turso</button>
         <button id="btn-validate-turso" class="btn btn-secondary" style="display:none;" title="Test Turso URL and token from .env">Validate Turso</button>
         <button id="btn-clear-cache" class="btn btn-secondary" style="display:none;">Clear cache</button>
+        <button id="btn-restore-archive" class="btn btn-secondary" style="display:none;" title="Copy archive-only dates back into daily tables">Restore archive to daily</button>
         <button id="btn-logout" class="btn btn-secondary" style="display:none;">Logout</button>
         <button id="btn-export" class="btn btn-success" style="display:none;" disabled>Export CSV</button>
       </div>
@@ -207,6 +208,7 @@
         btnConnect.style.display = 'none';
         if (btnRefresh) btnRefresh.style.display = 'inline-flex';
         if (btnClearCache) btnClearCache.style.display = 'inline-flex';
+        if (document.getElementById('btn-restore-archive')) document.getElementById('btn-restore-archive').style.display = 'inline-flex';
         if (document.getElementById('btn-sync-turso')) document.getElementById('btn-sync-turso').style.display = 'inline-flex';
         if (document.getElementById('btn-validate-turso')) document.getElementById('btn-validate-turso').style.display = 'inline-flex';
         if (hint) hint.style.display = 'none';
@@ -218,6 +220,7 @@
         btnConnect.style.display = 'inline-flex';
         if (btnRefresh) btnRefresh.style.display = 'none';
         if (btnClearCache) btnClearCache.style.display = 'none';
+        if (document.getElementById('btn-restore-archive')) document.getElementById('btn-restore-archive').style.display = 'none';
         if (document.getElementById('btn-sync-turso')) document.getElementById('btn-sync-turso').style.display = 'none';
         if (document.getElementById('btn-validate-turso')) document.getElementById('btn-validate-turso').style.display = 'none';
         if (hint) hint.style.display = hasApiKey ? 'none' : 'inline';
@@ -1092,9 +1095,24 @@
           const cls = delta >= 0 ? 'pct-up' : 'pct-down';
           return '<span class="' + cls + '">' + (delta >= 0 ? '+' : '') + fmt(delta) + (pct ? ' (' + (delta >= 0 ? '+' : '') + pct + '%)' : '') + '</span>';
         };
-        let tableHtml = '<h3 style="margin:0 0 12px;">Summary by stored date (Stocks vs MF)</h3>' +
+        const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const yearsInRows = [...new Set(rows.map(r => r.date.substring(0, 4)))].sort((a,b) => b - a);
+        const currentYear = new Date().getFullYear();
+        const yearRange = [];
+        const minYear = yearsInRows.length ? Math.min(...yearsInRows.map(Number), currentYear) - 1 : currentYear - 1;
+        for (let y = minYear; y <= currentYear + 1; y++) yearRange.push(y);
+        let yearOpts = yearRange.map(y => '<option value="' + y + '">' + y + '</option>').join('');
+        let monthOpts = monthNames.map((name, idx) => '<option value="' + String(idx + 1).padStart(2, '0') + '">' + name + '</option>').join('');
+        let tableHtml = '<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">' +
+          '<h3 style="margin:0 0 12px;">Summary by stored date (Stocks vs MF)</h3>' +
+          '<div style="display:flex; align-items:center; gap:8px; font-size:0.9rem;">' +
+          '<span class="text-muted">Filter by month:</span>' +
+          '<select id="monthly-year-select" style="padding:6px 10px; border-radius:4px; border:1px solid var(--border); background: var(--card); color: var(--text);">' + yearOpts + '</select>' +
+          '<select id="monthly-month-select" style="padding:6px 10px; border-radius:4px; border:1px solid var(--border); background: var(--card); color: var(--text);">' +
+          '<option value="">All months</option>' + monthOpts + '</select>' +
+          '</div></div>' +
           '<p class="text-muted" style="font-size:0.85rem; margin-bottom: 16px;">Category-wise: <strong>Stocks (Equity)</strong>, <strong>Mutual Funds (MF)</strong>. Total invested = EQ cost + MF cost. Change vs prev = total value change from previous stored date. Stocks Δ / MF Δ = category-wise growth. Month data from transaction ledgers.</p>' +
-          '<div class="table-wrap"><table style="font-size: 0.85rem;"><thead><tr>' +
+          '<div class="table-wrap"><table style="font-size: 0.85rem;" id="monthly-summary-table"><thead><tr>' +
           '<th>Date</th><th>Stocks Value</th><th>MF Value</th><th>Total</th><th>Invested</th><th>Change vs prev</th><th>Stocks Δ</th><th>MF Δ</th><th>EQ Buy</th><th>EQ Sell</th><th>MF Buy</th><th>MF Sell</th>' +
           '</tr></thead><tbody>' +
           rows.map((r, i) => {
@@ -1121,7 +1139,7 @@
             const eqSell = tx.EQUITY?.sell || 0;
             const mfBuy = tx.MF?.buy || 0;
             const mfSell = tx.MF?.sell || 0;
-            return '<tr><td>' + r.date + incompleteNote + '</td><td>' + fmt(r.portfolio_value) + '</td><td>' + fmt(r.mf_portfolio_value) + '</td><td><strong>' + fmt(total) + '</strong></td><td>' + fmt(invested) + '</td><td>' + changeCell + '</td><td>' + fmtDelta(stocksDelta, prev ? prev.portfolio_value : 0) + '</td><td>' + fmtDelta(mfDelta, prev ? prev.mf_portfolio_value : 0) + '</td><td class="pct-up">' + fmt(eqBuy) + '</td><td class="pct-down">' + fmt(eqSell) + '</td><td class="pct-up">' + fmt(mfBuy) + '</td><td class="pct-down">' + fmt(mfSell) + '</td></tr>';
+            return '<tr data-ym="' + ym + '"><td>' + r.date + incompleteNote + '</td><td>' + fmt(r.portfolio_value) + '</td><td>' + fmt(r.mf_portfolio_value) + '</td><td><strong>' + fmt(total) + '</strong></td><td>' + fmt(invested) + '</td><td>' + changeCell + '</td><td>' + fmtDelta(stocksDelta, prev ? prev.portfolio_value : 0) + '</td><td>' + fmtDelta(mfDelta, prev ? prev.mf_portfolio_value : 0) + '</td><td class="pct-up">' + fmt(eqBuy) + '</td><td class="pct-down">' + fmt(eqSell) + '</td><td class="pct-up">' + fmt(mfBuy) + '</td><td class="pct-down">' + fmt(mfSell) + '</td></tr>';
           }).join('') + '</tbody></table></div>';
 
         // Monthly summary: group by YYYY-MM, take last stored date in each month
@@ -1254,6 +1272,23 @@
           monthHtml += '</tbody></table></div>';
         }
         el.innerHTML = tableHtml + monthHtml;
+        
+        // Filter by year/month for summary table
+        const monthlyYearSel = document.getElementById('monthly-year-select');
+        const monthlyMonthSel = document.getElementById('monthly-month-select');
+        if (monthlyYearSel && monthlyMonthSel) {
+          if (yearsInRows.length) monthlyYearSel.value = yearsInRows[0];
+          function filterMonthlySummaryTable() {
+            const y = monthlyYearSel.value;
+            const m = monthlyMonthSel.value;
+            const targetYm = (y && m) ? (y + '-' + m) : null;
+            document.querySelectorAll('#monthly-summary-table tbody tr').forEach(tr => {
+              tr.style.display = targetYm === null || tr.getAttribute('data-ym') === targetYm ? '' : 'none';
+            });
+          }
+          monthlyYearSel.addEventListener('change', filterMonthlySummaryTable);
+          monthlyMonthSel.addEventListener('change', filterMonthlySummaryTable);
+        }
         
         // Add expand/collapse event listeners for monthly breakdown
         document.querySelectorAll('.month-row.expandable').forEach(row => {
@@ -1417,26 +1452,37 @@
             fetch('/api/holdings-by-date?date=' + encodeURIComponent(dateVal), { credentials: 'same-origin', cache: 'no-store' }),
             fetch('/api/holdings-by-date?date=' + encodeURIComponent(select2.value), { credentials: 'same-origin', cache: 'no-store' })
           ]);
-          const data1 = await r1.json();
-          const data2 = await r2.json();
+          let data1 = await r1.json();
+          let data2 = await r2.json();
           if (!r1.ok || !r2.ok) throw new Error('No data for one or both dates');
+          // Always compare earlier date → later date so "Added" = bought, "Sold" = sold
+          const fromDate = dateVal <= select2.value ? dateVal : select2.value;
+          const toDate = dateVal <= select2.value ? select2.value : dateVal;
+          if (dateVal > select2.value) {
+            const tmp = data1; data1 = data2; data2 = tmp;
+          }
           const pnlCls = (v) => v >= 0 ? 'pct-up' : 'pct-down';
           const pnlSign = (v) => v >= 0 ? '+' : '';
           const v = (h) => (parseFloat(h.quantity) || 0) * (parseFloat(h.last_price) || 0);
           const inv = (h) => (parseFloat(h.quantity) || 0) * (parseFloat(h.average_price) || 0);
-          // Normalize symbol so renames (e.g. GOLDBEES→GOLDBEES-E, PGINVIT→PGINVIT-IV) match
+          // Normalize symbol so renames (e.g. GOLDBEES→GOLDBEES-E, PGINVIT→PGINVIT-IV) match.
           function normalizedSymbol(s) {
             if (!s || typeof s !== 'string') return '';
             return s.replace(/-E$|-IV$|-GB$|-I$|-II$|-\d+$/gi, '').trim();
           }
-          // Equity: match by instrument_token (stable across symbol renames) else by normalized symbol
           function eqMatchKey(h) {
-            const tok = h.instrument_token != null && h.instrument_token !== '' && Number(h.instrument_token) !== 0;
-            return tok ? ('t_' + String(h.instrument_token)) : ('s_' + (normalizedSymbol(h.tradingsymbol || '') || h.tradingsymbol || ''));
+            const sym = (h.tradingsymbol || '').trim();
+            const norm = normalizedSymbol(sym) || sym;
+            return (norm || 'unknown').toUpperCase();
           }
-          // MF: match by normalized symbol + folio (same fund reclassified e.g. GOLDBEES→GOLDBEES-E)
+          // MF: use whatever unique id Zerodha sends. API uses tradingsymbol=ISIN, folio; optional isin/scheme_code.
+          // Name (fund) is for display only in UI.
           function mfMatchKey(h) {
-            return (normalizedSymbol(h.tradingsymbol || '') || (h.tradingsymbol || '')) + '|' + (h.folio || '');
+            const isin = (h.isin || h.tradingsymbol || '').toString().trim().toUpperCase();
+            const folio = (h.folio != null && h.folio !== '') ? h.folio.toString().trim() : '';
+            if (isin && isin.length >= 10) return isin + '|' + folio;
+            const sym = (h.tradingsymbol || '').toString().trim();
+            return (sym || 'mf') + '|' + folio;
           }
           const eq1 = (data1.equity || []).map(h => ({ ...h, _key: eqMatchKey(h) }));
           const eq2 = (data2.equity || []).map(h => ({ ...h, _key: eqMatchKey(h) }));
@@ -1456,7 +1502,20 @@
           const totalInv1 = eqInv1 + mfInv1; const totalInv2 = eqInv2 + mfInv2;
           const diffVal = totalVal2 - totalVal1; const diffInv = totalInv2 - totalInv1;
 
-          let html = '<p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">Comparing <strong>' + dateVal + '</strong> (from) → <strong>' + select2.value + '</strong> (to). Symbol renames (e.g. GOLDBEES→GOLDBEES-E, PGINVIT→PGINVIT-IV) are shown as reclassification, not Sold+Added.</p>';
+          const crore = 1e7;
+          const dataLooksBad = totalVal1 > 10 * crore || totalVal2 > 10 * crore ||
+            (totalVal1 > 0 && totalVal2 > 0 && (totalVal1 / totalVal2 > 20 || totalVal2 / totalVal1 > 20));
+
+          let html = '<p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">Comparing <strong>' + fromDate + '</strong> (earlier) → <strong>' + toDate + '</strong> (later). <strong>Added</strong> = bought, <strong>Sold</strong> = sold. Symbol renames shown as reclassification.</p>';
+          if (dataLooksBad) {
+            const badDate = totalVal1 > 10 * crore ? fromDate : (totalVal2 > 10 * crore ? toDate : (totalVal1 / totalVal2 > 20 ? fromDate : toDate));
+            html += '<div class="alert" style="background: #fee2e2; border: 1px solid #dc2626; color: #991b1b; padding: 12px; border-radius: 8px; margin-bottom: 16px;"><strong>Corrupt or wrong data for ' + badDate + '.</strong> One snapshot shows an unrealistic total value (e.g. hundreds of crores). The comparison totals above are not meaningful. This usually means a holding had wrong NAV/quantity saved on that date. Refresh portfolio on the Dashboard to re-save correct data, or avoid comparing with that date.</div>';
+          }
+          const mfImbalance = (mf1.length > 3 && mf2.length < 2) || (mf2.length > 3 && mf1.length < 2);
+          const mfMissingDate = mf1.length < mf2.length ? fromDate : (mf2.length < mf1.length ? toDate : '');
+          if (mfImbalance && mfMissingDate) {
+            html += '<div class="alert" style="background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; padding: 12px; border-radius: 8px; margin-bottom: 16px;"><strong>MF data missing or incomplete for ' + mfMissingDate + '.</strong> One date has ' + (mf1.length > mf2.length ? mf1.length : mf2.length) + ' MF holdings, the other has ' + (mf1.length > mf2.length ? mf2.length : mf1.length) + '. So &quot;Sold&quot; for MF below may mean <em>data was not saved</em> for that date, not that you actually sold. You did not sell ICICI PRUDENTIAL US BLUECHIP or others if the app did not have MF data for the other date.</div>';
+          }
           html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px;">';
           html += '<div class="card" style="padding: 12px;"><span class="text-muted">Total value change</span><br><span class="' + pnlCls(diffVal) + '" style="font-size: 1.1rem; font-weight: 600;">' + pnlSign(diffVal) + fmt(diffVal) + '</span><br><small>' + fmt(totalVal1) + ' → ' + fmt(totalVal2) + '</small></div>';
           html += '<div class="card" style="padding: 12px;"><span class="text-muted">Invested change</span><br><span style="font-size: 1.1rem; font-weight: 600;">' + pnlSign(diffInv) + fmt(diffInv) + '</span><br><small>' + fmt(totalInv1) + ' → ' + fmt(totalInv2) + '</small></div>';
@@ -1781,24 +1840,56 @@
       el.innerHTML = '<p class="text-muted">Loading weekly summary…</p>';
       try {
         const url = '/api/weekly-summary' + (monthKey ? '?month=' + monthKey : '');
-        const r = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+        const [r, rTx] = await Promise.all([
+          fetch(url, { credentials: 'same-origin', cache: 'no-store' }),
+          fetch('/api/monthly-transactions', { credentials: 'same-origin', cache: 'no-store' })
+        ]);
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || 'Failed to load');
-        loadWeeklySummaryWithData(d);
+        const dTx = await rTx.json().catch(() => ({}));
+        const txTotals = dTx.monthly_totals || {};
+        loadWeeklySummaryWithData(d, txTotals);
       } catch (e) {
         el.innerHTML = '<p class="pct-down">Error: ' + e.message + '</p>';
       }
     }
 
-    function loadWeeklySummaryWithData(data) {
+    function buildYearMonthOptions(selectedYear, selectedMonth) {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      let yearOpts = '';
+      for (let y = currentYear - 4; y <= currentYear + 1; y++) {
+        yearOpts += '<option value="' + y + '"' + (y === selectedYear ? ' selected' : '') + '>' + y + '</option>';
+      }
+      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      let monthOpts = '';
+      for (let m = 1; m <= 12; m++) {
+        const pad = String(m).padStart(2, '0');
+        monthOpts += '<option value="' + pad + '"' + (pad === selectedMonth ? ' selected' : '') + '>' + monthNames[m - 1] + ' (' + pad + ')</option>';
+      }
+      return { yearOpts, monthOpts };
+    }
+
+    function loadWeeklySummaryWithData(data, txTotals) {
       const el = document.getElementById('weekly-content');
+      txTotals = txTotals || {};
       const rows = data.rows || [];
-      const monthStr = data.month; // YYYY-MM
+      const monthStr = data.month || (new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0'));
+      const tx = txTotals[monthStr] || { EQUITY: { buy: 0, sell: 0 }, MF: { buy: 0, sell: 0 } };
+      const monthBuyLedger = (tx.EQUITY && tx.EQUITY.buy || 0) + (tx.MF && tx.MF.buy || 0);
+      const monthSellLedger = (tx.EQUITY && tx.EQUITY.sell || 0) + (tx.MF && tx.MF.sell || 0);
+      const yearPart = monthStr.substring(0, 4);
+      const monthPart = monthStr.substring(5, 7);
+      const opts = buildYearMonthOptions(parseInt(yearPart, 10), monthPart);
       
-      let html = '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">' +
-                 '<h3>Weekly Snapshots for ' + monthStr + '</h3>' +
-                 '<div><input type="month" id="weekly-month-select" value="' + monthStr + '" style="padding:6px; border-radius:4px; border:1px solid var(--border);"></div>' +
-                 '</div>';
+      let html = '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">' +
+                 '<h3 style="margin:0;">Weekly Snapshots for ' + monthStr + '</h3>' +
+                 '<div style="display:flex; align-items:center; gap:8px;">' +
+                 '<label class="text-muted" style="font-size:0.9rem;">Year:</label>' +
+                 '<select id="weekly-year-select" style="padding:6px 10px; border-radius:4px; border:1px solid var(--border); background: var(--card); color: var(--text);">' + opts.yearOpts + '</select>' +
+                 '<label class="text-muted" style="font-size:0.9rem;">Month:</label>' +
+                 '<select id="weekly-month-select" style="padding:6px 10px; border-radius:4px; border:1px solid var(--border); background: var(--card); color: var(--text);">' + opts.monthOpts + '</select>' +
+                 '</div></div>';
       
       if (rows.length === 0) {
         html += '<p class="text-muted">No weekly snapshots found for this month.</p>';
@@ -1833,26 +1924,30 @@
       
       html += '</tbody></table></div>';
       
-      // Calculate month summary from weekly snapshots
+      // Summary: portfolio from latest snapshot; Month Buy/Sell from transaction ledger (same as Monthly page)
       const latest = rows[0];
       html += '<div class="summary-cards" style="margin-top:24px;">' +
               '<div class="summary-card"><div class="label">Total Invested (Latest)</div><div class="value">' + fmt(latest.portfolio_cost + latest.mf_portfolio_cost) + '</div></div>' +
               '<div class="summary-card"><div class="label">Total Value (Latest)</div><div class="value">' + fmt(latest.portfolio_value + latest.mf_portfolio_value) + '</div></div>' +
-              '<div class="summary-card"><div class="label">Month Buy (Total)</div><div class="value pct-up">' + fmt(latest.month_buy) + '</div></div>' +
-              '<div class="summary-card"><div class="label">Month Sell (Total)</div><div class="value pct-down">' + fmt(latest.month_sell) + '</div></div>' +
-              '</div>';
+              '<div class="summary-card"><div class="label">Month Buy (Total)</div><div class="value pct-up">' + fmt(monthBuyLedger) + '</div></div>' +
+              '<div class="summary-card"><div class="label">Month Sell (Total)</div><div class="value pct-down">' + fmt(monthSellLedger) + '</div></div>' +
+              '</div>' +
+              '<p class="text-muted" style="font-size:0.8rem; margin-top:8px;">Portfolio values from stored snapshots. Month Buy / Month Sell = from transaction ledger (same source as Monthly page).</p>';
               
       el.innerHTML = html;
       setupWeeklyListeners();
     }
     
     function setupWeeklyListeners() {
-      const sel = document.getElementById('weekly-month-select');
-      if (sel) {
-        sel.addEventListener('change', (e) => {
-          loadWeeklyPage(e.target.value);
-        });
+      const yearSel = document.getElementById('weekly-year-select');
+      const monthSel = document.getElementById('weekly-month-select');
+      function onWeeklyPeriodChange() {
+        const y = yearSel ? yearSel.value : '';
+        const m = monthSel ? monthSel.value : '';
+        if (y && m) loadWeeklyPage(y + '-' + m);
       }
+      if (yearSel) yearSel.addEventListener('change', onWeeklyPeriodChange);
+      if (monthSel) monthSel.addEventListener('change', onWeeklyPeriodChange);
     }
 
     async function loadChecklistPage() {
@@ -3177,6 +3272,24 @@
       if (!confirm('Clear browser cache only? Page will refresh. Your saved portfolio data is not deleted.')) return;
       showAlert('Refreshing…', 'info');
       window.location.reload();
+    });
+
+    document.getElementById('btn-restore-archive')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-restore-archive');
+      if (btn) btn.disabled = true;
+      try {
+        const r = await fetch('/api/restore-archive', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) {
+          const n = d.restored || 0;
+          const dates = (d.dates || []).join(', ');
+          showAlert('Restored ' + n + ' date(s) from archive to daily.' + (dates ? ' Dates: ' + dates : ''), 'info');
+          if (n > 0) setTimeout(() => window.location.reload(), 1000);
+        } else showAlert(d.error || 'Restore failed', 'error');
+      } catch (e) {
+        showAlert('Restore failed: ' + e.message, 'error');
+      }
+      if (btn) btn.disabled = false;
     });
 
     document.getElementById('btn-show-db')?.addEventListener('click', async () => {

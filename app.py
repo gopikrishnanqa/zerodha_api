@@ -384,6 +384,16 @@ def clear_cache():
     return jsonify({"ok": True, "portfolio_rows_deleted": n})
 
 
+@app.route("/api/restore-archive", methods=["POST"])
+@require_auth
+def restore_archive():
+    """Copy all archive-only dates into portfolio_daily (and holdings tables). Data stays in archive too."""
+    db.init_db()
+    count, dates_restored = db.restore_archive_to_daily()
+    log.info("Restored %d date(s) from archive to daily: %s", count, dates_restored)
+    return jsonify({"ok": True, "restored": count, "dates": dates_restored})
+
+
 @app.route("/api/turso-validate")
 @require_auth
 def turso_validate():

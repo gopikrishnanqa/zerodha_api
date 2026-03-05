@@ -102,7 +102,7 @@ def init_db():
         )
     """)
 
-    # Archive tables for weekly snapshots (storing older fetches from same week)
+    # Archive tables (older fetches from same week+month when we save a new snapshot)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS portfolio_archive (
             date TEXT NOT NULL,
@@ -318,12 +318,20 @@ def _row_key(row, key, default=None):
 
 
 def get_cached_day(d: date) -> dict | None:
-    """Return cached data for date: aggregates from portfolio_daily + holdings from holdings_equity_daily and holdings_mf_daily."""
+    """Return cached data for date: aggregates from portfolio_daily (or portfolio_archive) + holdings from daily or archive tables."""
     conn = get_db()
+    date_str = d.isoformat()
     row = conn.execute(
         "SELECT * FROM portfolio_daily WHERE date = ?",
-        (d.isoformat(),)
+        (date_str,),
     ).fetchone()
+    from_daily = True
+    if row is None:
+        row = conn.execute(
+            "SELECT * FROM portfolio_archive WHERE date = ?",
+            (date_str,),
+        ).fetchone()
+        from_daily = False
     if row is None:
         conn.close()
         return None
@@ -341,19 +349,28 @@ def get_cached_day(d: date) -> dict | None:
         "mf_portfolio_cost": float(_row_key(row, "mf_portfolio_cost", 0) or 0),
         "price_changes_json": _row_key(row, "price_changes_json"),
     }
-    # Build holdings from normalized tables (fallback to legacy holdings_json if present and new tables empty)
-    equity_rows = conn.execute(
-        "SELECT tradingsymbol, exchange, data_json FROM holdings_equity_daily WHERE date = ? ORDER BY tradingsymbol",
-        (d.isoformat(),),
-    ).fetchall()
-    mf_rows = conn.execute(
-        "SELECT tradingsymbol, folio, data_json FROM holdings_mf_daily WHERE date = ? ORDER BY tradingsymbol",
-        (d.isoformat(),),
-    ).fetchall()
+    if from_daily:
+        equity_rows = conn.execute(
+            "SELECT tradingsymbol, exchange, data_json FROM holdings_equity_daily WHERE date = ? ORDER BY tradingsymbol",
+            (date_str,),
+        ).fetchall()
+        mf_rows = conn.execute(
+            "SELECT tradingsymbol, folio, data_json FROM holdings_mf_daily WHERE date = ? ORDER BY tradingsymbol",
+            (date_str,),
+        ).fetchall()
+    else:
+        equity_rows = conn.execute(
+            "SELECT tradingsymbol, exchange, data_json FROM holdings_equity_archive WHERE date = ? ORDER BY tradingsymbol",
+            (date_str,),
+        ).fetchall()
+        mf_rows = conn.execute(
+            "SELECT tradingsymbol, folio, data_json FROM holdings_mf_archive WHERE date = ? ORDER BY tradingsymbol",
+            (date_str,),
+        ).fetchall()
     if equity_rows:
         holdings = [json.loads(r["data_json"]) for r in equity_rows]
     else:
-        hj = _row_key(row, "holdings_json")
+        hj = _row_key(row, "holdings_json") if from_daily else None
         try:
             holdings = json.loads(hj) if hj else []
         except Exception:
@@ -361,7 +378,7 @@ def get_cached_day(d: date) -> dict | None:
     if mf_rows:
         mf_holdings = [json.loads(r["data_json"]) for r in mf_rows]
     else:
-        mj = _row_key(row, "mf_holdings_json")
+        mj = _row_key(row, "mf_holdings_json") if from_daily else None
         try:
             mf_holdings = json.loads(mj) if mj else []
         except Exception:
@@ -597,8 +614,8 @@ def save_portfolio_day(
 ):
     """
     Save daily aggregates to portfolio_daily and one row per stock/MF to holdings_equity_daily and holdings_mf_daily.
-    Archiving logic: If a record for the same ISO week already exists in portfolio_daily, move it and its holdings
-    to the archive tables before saving this new fetch as the primary record for that week.
+    Archiving logic: If a record for the same ISO week and same calendar month already exists in portfolio_daily,
+    move it to archive before saving. We never archive across month boundary (e.g. Mar 1 refresh does not archive Feb 28).
     """
     mf_holdings = mf_holdings or []
     price_changes = price_changes or {}
@@ -606,21 +623,20 @@ def save_portfolio_day(
     date_str = d.isoformat()
     now = datetime.now().isoformat()
 
-    # Identify existing record in the same ISO week
+    # Only archive records in the same ISO week AND same month (never move February when saving March)
     year, week, weekday = d.isocalendar()
-    # Find all records in portfolio_daily
     all_dates = conn.execute("SELECT date FROM portfolio_daily").fetchall()
     to_archive = []
     for row in all_dates:
         try:
             rd = date.fromisoformat(row["date"])
             ry, rw, rwd = rd.isocalendar()
-            if ry == year and rw == week and row["date"] != date_str:
+            if ry == year and rw == week and rd.month == d.month and row["date"] != date_str:
                 to_archive.append(row["date"])
         except ValueError:
             continue
 
-    # Move existing same-week records to archive
+    # Move same-week same-month records to archive
     for adate in to_archive:
         # Move aggregates
         conn.execute("""
@@ -651,7 +667,7 @@ def save_portfolio_day(
         conn.execute("DELETE FROM portfolio_daily WHERE date = ?", (adate,))
         conn.execute("DELETE FROM holdings_equity_daily WHERE date = ?", (adate,))
         conn.execute("DELETE FROM holdings_mf_daily WHERE date = ?", (adate,))
-        log.info("Archived existing record for %s (same week as %s)", adate, date_str)
+        log.info("Archived existing record for %s (same week and month as %s)", adate, date_str)
 
     # Aggregates only (no holdings JSON in portfolio_daily)
     conn.execute("""
@@ -755,6 +771,54 @@ def update_cached_mf_only(d: date, mf_holdings: list, mf_portfolio_value: float)
             log.warning("Turso update_cached_mf_only failed: %s", e)
 
 
+def restore_archive_to_daily() -> tuple[int, list[str]]:
+    """
+    Copy all dates that exist in portfolio_archive but not in portfolio_daily
+    into the daily tables (portfolio_daily, holdings_equity_daily, holdings_mf_daily).
+    Archive rows are left in place. Returns (count of dates restored, list of dates).
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT date FROM portfolio_archive WHERE date NOT IN (SELECT date FROM portfolio_daily)"
+        ).fetchall()
+        dates_to_restore = [r["date"] for r in rows]
+        for date_str in dates_to_restore:
+            conn.execute(
+                """
+                INSERT INTO portfolio_daily
+                (date, portfolio_value, portfolio_cost, buy_amount, sell_amount,
+                 month_buy, month_sell, month_per_stock_json, num_holdings,
+                 mf_portfolio_value, mf_portfolio_cost, price_changes_json, created_at)
+                SELECT date, portfolio_value, portfolio_cost, buy_amount, sell_amount,
+                       month_buy, month_sell, month_per_stock_json, num_holdings,
+                       mf_portfolio_value, mf_portfolio_cost, price_changes_json, created_at
+                FROM portfolio_archive WHERE date = ?
+                """,
+                (date_str,),
+            )
+            conn.execute(
+                """
+                INSERT INTO holdings_equity_daily (date, tradingsymbol, exchange, data_json, created_at)
+                SELECT date, tradingsymbol, exchange, data_json, created_at
+                FROM holdings_equity_archive WHERE date = ?
+                """,
+                (date_str,),
+            )
+            conn.execute(
+                """
+                INSERT INTO holdings_mf_daily (date, tradingsymbol, folio, data_json, created_at)
+                SELECT date, tradingsymbol, folio, data_json, created_at
+                FROM holdings_mf_archive WHERE date = ?
+                """,
+                (date_str,),
+            )
+        conn.commit()
+        return len(dates_to_restore), dates_to_restore
+    finally:
+        conn.close()
+
+
 def clear_portfolio_cache() -> int:
     """Delete all rows from portfolio_daily and holdings tables. Returns number of portfolio_daily rows deleted."""
     conn = get_db()
@@ -801,10 +865,16 @@ def get_cache_status_rows(limit: int = 31) -> list:
 
 
 def get_dates_list(limit: int = 365) -> list:
-    """Return list of dates (YYYY-MM-DD) we have data for, newest first."""
+    """Return list of dates (YYYY-MM-DD) we have data for, newest first. Includes archive so archived same-week snapshots (e.g. Feb) still appear."""
     conn = get_db()
     rows = conn.execute(
-        "SELECT date FROM portfolio_daily ORDER BY date DESC LIMIT ?",
+        """
+        SELECT date FROM (
+            SELECT date FROM portfolio_daily
+            UNION
+            SELECT date FROM portfolio_archive
+        ) ORDER BY date DESC LIMIT ?
+        """,
         (limit,),
     ).fetchall()
     conn.close()
@@ -839,16 +909,28 @@ def get_monthly_summary_rows() -> list:
 
 
 def get_weekly_summary_rows_for_month(year_month: str) -> list:
-    """Return all snapshots (one per week) for a given YYYY-MM from portfolio_daily."""
+    """Return all snapshots for a given YYYY-MM from portfolio_daily and portfolio_archive (prefer daily when same date)."""
     conn = get_db()
-    query = """
-        SELECT * FROM portfolio_daily 
-        WHERE date LIKE ? 
-        ORDER BY date DESC
-    """
-    rows = conn.execute(query, (year_month + "%",)).fetchall()
+    prefix = year_month + "%"
+    rows_daily = conn.execute(
+        "SELECT * FROM portfolio_daily WHERE date LIKE ? ORDER BY date DESC",
+        (prefix,),
+    ).fetchall()
+    rows_archive = conn.execute(
+        "SELECT date, portfolio_value, portfolio_cost, buy_amount, sell_amount, month_buy, month_sell, "
+        "month_per_stock_json, num_holdings, mf_portfolio_value, mf_portfolio_cost, price_changes_json, created_at "
+        "FROM portfolio_archive WHERE date LIKE ? ORDER BY date DESC",
+        (prefix,),
+    ).fetchall()
     conn.close()
-    return [_row_to_dict(r) for r in rows]
+    seen = {r["date"] for r in rows_daily}
+    merged = list(rows_daily)
+    for r in rows_archive:
+        if r["date"] not in seen:
+            merged.append(r)
+            seen.add(r["date"])
+    merged.sort(key=lambda x: x["date"], reverse=True)
+    return [_row_to_dict(r) for r in merged]
 
 
 def get_holdings_for_date(d: date) -> dict | None:

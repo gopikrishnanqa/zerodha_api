@@ -340,7 +340,7 @@ def save_portfolio_day_turso(
     mf_portfolio_cost: float = 0,
     price_changes: dict | None = None,
 ):
-    """Mirror save_portfolio_day to Turso (same weekly archiving logic as local)."""
+    """Mirror save_portfolio_day to Turso (same week + same month archiving as local; never archive across month)."""
     if not _turso_enabled():
         return
     mf_holdings = mf_holdings or []
@@ -382,7 +382,7 @@ def save_portfolio_day_turso(
                 try:
                     rd = date.fromisoformat(r_date_str)
                     ry, rw, rwd = rd.isocalendar()
-                    if ry == year and rw == week:
+                    if ry == year and rw == week and rd.month == d.month:
                         to_archive.append(r_date_str)
                 except Exception: continue
 
